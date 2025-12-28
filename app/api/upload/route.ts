@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
   // Get signed URL for private buckets (valid for 1 hour)
   const {
-    data: { signedUrl },
+    data: signedUrlData,
   } = await supabase.storage.from(bucketName).createSignedUrl(fileName, 3600);
 
   // Also return the file path for server-side access
@@ -64,6 +64,6 @@ export async function POST(request: Request) {
     fileName: file.name,
     fileSize: file.size,
     fileType: file.type,
-    signedUrl: signedUrl || null,
+    signedUrl: signedUrlData?.signedUrl || null,
   });
 }
