@@ -54,7 +54,7 @@ export default function ReceiptUploadPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          imageUrl: fileData.publicUrl,
+          filePath: fileData.filePathFull || `receipts/${fileData.filePath}`,
         }),
       });
 

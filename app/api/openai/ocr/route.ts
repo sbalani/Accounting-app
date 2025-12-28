@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -10,16 +11,62 @@ export async function POST(request: Request) {
     );
   }
 
-  const { imageUrl } = await request.json();
+  const { imageUrl, filePath } = await request.json();
 
-  if (!imageUrl) {
+  if (!imageUrl && !filePath) {
     return NextResponse.json(
-      { error: "Image URL is required" },
+      { error: "Image URL or file path is required" },
       { status: 400 }
     );
   }
 
   try {
+    let imageDataUrl: string;
+
+    // If we have a filePath, download the file from Supabase Storage
+    if (filePath) {
+      const supabase = await createClient();
+      // Parse bucket name and path
+      // filePath format: "receipts/user_id/workspace_id/type/timestamp.ext" or just the path part
+      const bucketName = filePath.startsWith('receipts/') ? 'receipts' : 
+                        filePath.startsWith('statements/') ? 'statements' : 'receipts';
+      const path = filePath.startsWith('receipts/') || filePath.startsWith('statements/') 
+        ? filePath.substring(filePath.indexOf('/') + 1) 
+        : filePath;
+      
+      // Download the file as a blob
+      const { data, error: downloadError } = await supabase.storage
+        .from(bucketName)
+        .download(path);
+
+      if (downloadError || !data) {
+        return NextResponse.json(
+          { error: downloadError?.message || "Failed to download file from storage" },
+          { status: 500 }
+        );
+      }
+
+      // Convert blob to base64 data URL
+      const arrayBuffer = await data.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString('base64');
+      const mimeType = data.type || 'image/jpeg';
+      imageDataUrl = `data:${mimeType};base64,${base64}`;
+    } else {
+      // If we have a public URL, try to fetch it
+      // But if it's a private bucket, we'll need to handle it differently
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
+        return NextResponse.json(
+          { error: "Failed to download image. Please ensure the file is accessible." },
+          { status: 500 }
+        );
+      }
+      const imageBlob = await imageResponse.blob();
+      const arrayBuffer = await imageBlob.arrayBuffer();
+      const base64 = Buffer.from(arrayBuffer).toString('base64');
+      imageDataUrl = `data:${imageBlob.type};base64,${base64}`;
+    }
+
     // Use OpenAI Vision API to extract text from image
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -40,7 +87,7 @@ export async function POST(request: Request) {
               {
                 type: "image_url",
                 image_url: {
-                  url: imageUrl,
+                  url: imageDataUrl,
                 },
               },
             ],

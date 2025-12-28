@@ -50,16 +50,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Get public URL
+  // Get signed URL for private buckets (valid for 1 hour)
   const {
-    data: { publicUrl },
-  } = supabase.storage.from(bucketName).getPublicUrl(fileName);
+    data: { signedUrl },
+  } = await supabase.storage.from(bucketName).createSignedUrl(fileName, 3600);
+
+  // Also return the file path for server-side access
+  const filePath = `${bucketName}/${data.path}`;
 
   return NextResponse.json({
     filePath: data.path,
+    filePathFull: filePath,
     fileName: file.name,
     fileSize: file.size,
     fileType: file.type,
-    publicUrl,
+    signedUrl: signedUrl || null,
   });
 }
