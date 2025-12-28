@@ -267,14 +267,15 @@ export function parseCSVWithConfig(
     }
 
     // Try to parse date - handle various formats
-    let transactionDate: string;
-    try {
-      // Try common date formats
-      const dateParsed = parseDate(dateValue);
-      transactionDate = dateParsed || new Date().toISOString().split("T")[0];
-    } catch {
-      transactionDate = new Date().toISOString().split("T")[0];
+    // Throw error if date cannot be parsed instead of silently defaulting
+    const dateParsed = parseDate(dateValue);
+    if (!dateParsed) {
+      throw new Error(
+        `Unable to parse date "${dateValue}" in row ${i + 1}. ` +
+        `Please check the date column mapping. Dates should be in formats like YYYY-MM-DD, MM/DD/YYYY, or YYYY-MM-DD HH:MM:SS.`
+      );
     }
+    const transactionDate = dateParsed;
 
     transactions.push({
       amount,
@@ -290,10 +291,19 @@ export function parseCSVWithConfig(
 
 /**
  * Parses various date formats to YYYY-MM-DD
+ * Handles date+time formats by extracting just the date portion
  */
 function parseDate(dateStr: string): string | null {
   // Remove any extra whitespace
-  const cleaned = dateStr.trim();
+  let cleaned = dateStr.trim();
+  
+  // Handle date+time formats by extracting just the date part
+  // Common formats: "2025-12-01 09:02:51", "2025-12-01T09:02:51", "2025/12/01 09:02:51"
+  // Split on space or 'T' and take the first part (the date)
+  const dateTimeMatch = cleaned.match(/^(.+?)[\sT](.+)$/);
+  if (dateTimeMatch) {
+    cleaned = dateTimeMatch[1].trim();
+  }
 
   // Try different date formats
   const formats = [

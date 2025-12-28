@@ -11,6 +11,7 @@ import {
   CSVImportConfig,
   ParsedTransaction,
 } from "@/lib/utils/csv-parser";
+import { formatCurrency } from "@/lib/utils/currency";
 
 type ImportStep =
   | "upload"
@@ -67,6 +68,9 @@ export default function StatementImportPage() {
   const [newPaymentMethodType, setNewPaymentMethodType] = useState<"cash" | "bank_account" | "credit_card">("bank_account");
   const [newPaymentMethodBalance, setNewPaymentMethodBalance] = useState("");
   const [creatingPaymentMethod, setCreatingPaymentMethod] = useState(false);
+  
+  // Primary currency for formatting
+  const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
 
   useEffect(() => {
     fetchPaymentMethods();
@@ -477,10 +481,7 @@ export default function StatementImportPage() {
   };
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
+    return formatCurrency(amount, primaryCurrency);
   };
 
   const canProceedToPreview = () => {
@@ -633,7 +634,7 @@ export default function StatementImportPage() {
                             date: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
-                        className="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                       >
                         <option value="">Select column</option>
                         {csvHeaders.map((header, index) => (
@@ -656,7 +657,7 @@ export default function StatementImportPage() {
                             description: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
-                        className="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                       >
                         <option value="">Select column</option>
                         {csvHeaders.map((header, index) => (
@@ -679,7 +680,7 @@ export default function StatementImportPage() {
                             merchant: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
-                        className="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                       >
                         <option value="">None</option>
                         {csvHeaders.map((header, index) => (
@@ -702,7 +703,7 @@ export default function StatementImportPage() {
                             category: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
-                        className="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                       >
                         <option value="">None</option>
                         {csvHeaders.map((header, index) => (
@@ -755,7 +756,7 @@ export default function StatementImportPage() {
                             amount: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
-                        className="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                       >
                         <option value="">Select column</option>
                         {csvHeaders.map((header, index) => (
@@ -802,7 +803,7 @@ export default function StatementImportPage() {
                             amount: e.target.value ? parseInt(e.target.value) : null,
                           })
                         }
-                        className="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                       >
                         <option value="">Select column</option>
                         {csvHeaders.map((header, index) => (
@@ -849,7 +850,7 @@ export default function StatementImportPage() {
                               debit: e.target.value ? parseInt(e.target.value) : null,
                             })
                           }
-                          className="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                         >
                           <option value="">Select column</option>
                           {csvHeaders.map((header, index) => (
@@ -871,7 +872,7 @@ export default function StatementImportPage() {
                               credit: e.target.value ? parseInt(e.target.value) : null,
                             })
                           }
-                          className="block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                         >
                           <option value="">Select column</option>
                           {csvHeaders.map((header, index) => (
@@ -1201,6 +1202,7 @@ export default function StatementImportPage() {
                             );
                           }}
                           onCreatePaymentMethod={() => setShowPaymentMethodForm(true)}
+                          primaryCurrency={primaryCurrency}
                         />
                       ))}
                     </tbody>
@@ -1264,6 +1266,7 @@ function TransactionRow({
   paymentMethodId,
   onUpdate,
   onCreatePaymentMethod,
+  primaryCurrency,
 }: {
   transaction: ParsedTransaction;
   index: number;
@@ -1271,6 +1274,7 @@ function TransactionRow({
   paymentMethodId: string;
   onUpdate: (transaction: ParsedTransaction) => void;
   onCreatePaymentMethod: () => void;
+  primaryCurrency: string;
 }) {
   const [isTransfer, setIsTransfer] = useState(transaction.transaction_type === "transfer");
   const [transferFrom, setTransferFrom] = useState(transaction.transfer_from_id || paymentMethodId);
@@ -1320,10 +1324,7 @@ function TransactionRow({
   };
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
+    return formatCurrency(amount, primaryCurrency);
   };
 
   return (
