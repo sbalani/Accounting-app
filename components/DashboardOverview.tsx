@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { formatCurrency } from "@/lib/utils/currency";
 
 interface DashboardOverviewProps {
   workspaceId: string | null;
@@ -11,6 +12,7 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
 
   useEffect(() => {
     if (workspaceId) {
@@ -28,11 +30,13 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
       if (paymentMethodsRes.ok) {
         const data = await paymentMethodsRes.json();
         setPaymentMethods(data.paymentMethods || []);
+        setPrimaryCurrency(data.primaryCurrency || "USD");
       }
 
       if (transactionsRes.ok) {
         const data = await transactionsRes.json();
         setTransactions(data.transactions || []);
+        setPrimaryCurrency(data.primaryCurrency || primaryCurrency || "USD");
       }
     } catch (err) {
       console.error("Error fetching dashboard data:", err);
@@ -59,28 +63,19 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
         <div className="bg-white shadow rounded-lg p-6">
           <h2 className="text-lg font-semibold text-gray-600 mb-2">Total Balance</h2>
           <p className="text-3xl font-bold text-gray-900">
-            {new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-            }).format(totalBalance)}
+            {formatCurrency(totalBalance, primaryCurrency)}
           </p>
         </div>
         <div className="bg-white shadow rounded-lg p-6">
           <h2 className="text-lg font-semibold text-gray-600 mb-2">Total Income</h2>
           <p className="text-3xl font-bold text-green-600">
-            {new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-            }).format(totalIncome)}
+            {formatCurrency(totalIncome, primaryCurrency)}
           </p>
         </div>
         <div className="bg-white shadow rounded-lg p-6">
           <h2 className="text-lg font-semibold text-gray-600 mb-2">Total Expenses</h2>
           <p className="text-3xl font-bold text-red-600">
-            {new Intl.NumberFormat("en-US", {
-              style: "currency",
-              currency: "USD",
-            }).format(totalExpenses)}
+            {formatCurrency(totalExpenses, primaryCurrency)}
           </p>
         </div>
       </div>
@@ -110,10 +105,7 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
                         : "text-gray-900"
                     }`}
                   >
-                    {new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                    }).format(pm.current_balance)}
+                    {formatCurrency(pm.current_balance, primaryCurrency)}
                   </span>
                 </div>
               ))}
@@ -150,10 +142,7 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
                       t.amount >= 0 ? "text-green-600" : "text-red-600"
                     }`}
                   >
-                    {new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                    }).format(t.amount)}
+                    {formatCurrency(t.amount, primaryCurrency)}
                   </span>
                 </div>
               ))}

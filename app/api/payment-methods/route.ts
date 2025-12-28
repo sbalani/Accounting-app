@@ -20,7 +20,17 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ paymentMethods });
+  // Get workspace primary currency
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("primary_currency")
+    .eq("id", workspaceId)
+    .single();
+
+  return NextResponse.json({
+    paymentMethods,
+    primaryCurrency: workspace?.primary_currency || "USD",
+  });
 }
 
 export async function POST(request: Request) {

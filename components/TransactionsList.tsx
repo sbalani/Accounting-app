@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { formatCurrency } from "@/lib/utils/currency";
 
 interface Transaction {
   id: string;
@@ -22,6 +23,7 @@ export default function TransactionsList() {
   const [error, setError] = useState<string | null>(null);
   const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>("");
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
 
   const fetchPaymentMethods = useCallback(async () => {
     try {
@@ -49,6 +51,7 @@ export default function TransactionsList() {
       }
       const data = await response.json();
       setTransactions(data.transactions || []);
+      setPrimaryCurrency(data.primaryCurrency || "USD");
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -85,12 +88,6 @@ export default function TransactionsList() {
     }
   };
 
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
-  };
 
   if (loading) {
     return <div className="text-center py-8">Loading transactions...</div>;
@@ -137,11 +134,11 @@ export default function TransactionsList() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
           <div className="p-4 bg-green-50 rounded-lg">
             <p className="text-sm text-gray-600 mb-1">Total Income</p>
-            <p className="text-2xl font-bold text-green-700">{formatAmount(totalIncome)}</p>
+            <p className="text-2xl font-bold text-green-700">{formatCurrency(totalIncome, primaryCurrency)}</p>
           </div>
           <div className="p-4 bg-red-50 rounded-lg">
             <p className="text-sm text-gray-600 mb-1">Total Expenses</p>
-            <p className="text-2xl font-bold text-red-700">{formatAmount(totalExpenses)}</p>
+            <p className="text-2xl font-bold text-red-700">{formatCurrency(totalExpenses, primaryCurrency)}</p>
           </div>
         </div>
       </div>
@@ -201,7 +198,7 @@ export default function TransactionsList() {
                       transaction.amount >= 0 ? "text-green-600" : "text-red-600"
                     }`}
                   >
-                    {formatAmount(transaction.amount)}
+                    {formatCurrency(transaction.amount, primaryCurrency)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <Link
