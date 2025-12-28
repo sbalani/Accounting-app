@@ -145,80 +145,81 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
         <h2 className="text-xl font-semibold mb-4">Your Workspaces</h2>
         <div className="space-y-4">
           {workspaceList.map((workspace) => (
-            <div
-              key={workspace.id}
-              className="flex items-center justify-between p-4 border rounded-lg"
-            >
-              <div className="flex-1">
-                <h3 className="font-medium">{workspace.name}</h3>
-                <p className="text-sm text-gray-500">
-                  Role: {workspace.role} • Created: {new Date(workspace.created_at).toLocaleDateString()}
-                </p>
-                {workspace.role === "owner" && (
-                  <p className="text-sm text-gray-600 mt-1">
-                    Primary Currency: <span className="font-medium">{workspace.primary_currency || "USD"}</span>
+            <div key={workspace.id} className="border rounded-lg">
+              <div className="flex items-center justify-between p-4">
+                <div className="flex-1">
+                  <h3 className="font-medium">{workspace.name}</h3>
+                  <p className="text-sm text-gray-500">
+                    Role: {workspace.role} • Created: {new Date(workspace.created_at).toLocaleDateString()}
                   </p>
-                )}
-              </div>
-              <div className="flex items-center space-x-2">
-                {workspace.role === "owner" && (
-                  <a
-                    href={`/workspace/invite?workspaceId=${workspace.id}`}
-                    className="text-blue-600 hover:text-blue-500 text-sm"
-                  >
-                    Invite
-                  </a>
-                )}
-                {workspace.role === "owner" && (
-                  <button
-                    onClick={() => setEditingWorkspaceId(workspace.id)}
-                    className="text-blue-600 hover:text-blue-500 text-sm"
-                  >
-                    Edit
-                  </button>
-                )}
-              </div>
-            </div>
-            {editingWorkspaceId === workspace.id && workspace.role === "owner" && (
-              <div className="mt-3 p-4 bg-gray-50 rounded-lg space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Primary Currency
-                  </label>
-                  <select
-                    value={editingPrimaryCurrency}
-                    onChange={(e) => setEditingPrimaryCurrency(e.target.value)}
-                    className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  >
-                    {SUPPORTED_CURRENCIES.map((currency) => (
-                      <option key={currency} value={currency}>
-                        {currency}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    All amounts will be displayed in this currency. Transactions in other currencies will be converted automatically.
-                  </p>
+                  {workspace.role === "owner" && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Primary Currency: <span className="font-medium">{workspace.primary_currency || "USD"}</span>
+                    </p>
+                  )}
                 </div>
-                <div className="flex justify-end space-x-2">
-                  <button
-                    onClick={() => {
-                      setEditingWorkspaceId(null);
-                      setEditingPrimaryCurrency("USD");
-                    }}
-                    className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => handleUpdatePrimaryCurrency(workspace.id)}
-                    disabled={loading}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {loading ? "Saving..." : "Save Currency"}
-                  </button>
+                <div className="flex items-center space-x-2">
+                  {workspace.role === "owner" && (
+                    <a
+                      href={`/workspace/invite?workspaceId=${workspace.id}`}
+                      className="text-blue-600 hover:text-blue-500 text-sm"
+                    >
+                      Invite
+                    </a>
+                  )}
+                  {workspace.role === "owner" && (
+                    <button
+                      onClick={() => setEditingWorkspaceId(workspace.id)}
+                      className="text-blue-600 hover:text-blue-500 text-sm"
+                    >
+                      Edit
+                    </button>
+                  )}
                 </div>
               </div>
+              {editingWorkspaceId === workspace.id && workspace.role === "owner" && (
+                <div className="px-4 pb-4">
+                  <div className="mt-3 p-4 bg-gray-50 rounded-lg space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Primary Currency
+                      </label>
+                      <select
+                        value={editingPrimaryCurrency}
+                        onChange={(e) => setEditingPrimaryCurrency(e.target.value)}
+                        className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                      >
+                        {SUPPORTED_CURRENCIES.map((currency) => (
+                          <option key={currency} value={currency}>
+                            {currency}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-gray-500">
+                        All amounts will be displayed in this currency. Transactions in other currencies will be converted automatically.
+                      </p>
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                      <button
+                        onClick={() => {
+                          setEditingWorkspaceId(null);
+                          setEditingPrimaryCurrency("USD");
+                        }}
+                        className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleUpdatePrimaryCurrency(workspace.id)}
+                        disabled={loading}
+                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {loading ? "Saving..." : "Save Currency"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
