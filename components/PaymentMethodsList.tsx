@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { formatCurrency } from "@/lib/utils/currency";
 
 interface PaymentMethod {
   id: string;
@@ -16,6 +17,7 @@ export default function PaymentMethodsList() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
 
   useEffect(() => {
     fetchPaymentMethods();
@@ -29,6 +31,7 @@ export default function PaymentMethodsList() {
       }
       const data = await response.json();
       setPaymentMethods(data.paymentMethods || []);
+      setPrimaryCurrency(data.primaryCurrency || "USD");
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -57,17 +60,6 @@ export default function PaymentMethodsList() {
     }
   };
 
-  const formatBalance = (balance: number, type: string) => {
-    const formatted = new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(Math.abs(balance));
-
-    if (type === "credit_card" && balance < 0) {
-      return `-${formatted}`;
-    }
-    return formatted;
-  };
 
   const getTypeLabel = (type: string) => {
     switch (type) {
@@ -115,7 +107,7 @@ export default function PaymentMethodsList() {
       <div className="bg-white shadow rounded-lg p-6">
         <h2 className="text-lg font-semibold mb-4">Total Balance</h2>
         <p className="text-3xl font-bold text-gray-900">
-          {formatBalance(totalBalance, "total")}
+          {formatCurrency(totalBalance, primaryCurrency)}
         </p>
       </div>
 
@@ -151,7 +143,7 @@ export default function PaymentMethodsList() {
                     : "text-gray-900"
                 }`}
               >
-                {formatBalance(method.current_balance, method.type)}
+                {formatCurrency(method.current_balance, primaryCurrency)}
               </p>
             </div>
           </div>
