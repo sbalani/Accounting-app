@@ -70,6 +70,8 @@ export default function StatementImportPage() {
 
   useEffect(() => {
     fetchPaymentMethods();
+    fetchTransferRules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load saved CSV config when payment method changes in configure step
@@ -984,7 +986,7 @@ export default function StatementImportPage() {
                   <div className="space-y-1">
                     {transferRules.map((rule) => (
                       <div key={rule.id} className="text-xs text-gray-600 bg-white p-2 rounded border">
-                        <span className="font-medium">{rule.name}:</span> {rule.rule_type} "{rule.match_value}" → {rule.transfer_direction === "to" ? "To" : "From"} {paymentMethods.find(pm => pm.id === rule.target_payment_method_id)?.name || "Unknown"}
+                        <span className="font-medium">{rule.name}:</span> {rule.rule_type} &quot;{rule.match_value}&quot; → {rule.transfer_direction === "to" ? "To" : "From"} {paymentMethods.find(pm => pm.id === rule.target_payment_method_id)?.name || "Unknown"}
                       </div>
                     ))}
                   </div>
