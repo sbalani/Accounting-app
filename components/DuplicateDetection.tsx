@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 interface DuplicateTransaction {
   id: string;
@@ -31,15 +31,7 @@ export default function DuplicateDetection({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (amount && transactionDate && paymentMethodId) {
-      checkDuplicates();
-    } else {
-      setDuplicates([]);
-    }
-  }, [amount, transactionDate, paymentMethodId, excludeTransactionId]);
-
-  const checkDuplicates = async () => {
+  const checkDuplicates = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -69,7 +61,15 @@ export default function DuplicateDetection({
     } finally {
       setLoading(false);
     }
-  };
+  }, [amount, transactionDate, paymentMethodId, excludeTransactionId]);
+
+  useEffect(() => {
+    if (amount && transactionDate && paymentMethodId) {
+      checkDuplicates();
+    } else {
+      setDuplicates([]);
+    }
+  }, [amount, transactionDate, paymentMethodId, excludeTransactionId, checkDuplicates]);
 
   if (!amount || !transactionDate || !paymentMethodId) {
     return null;
@@ -140,7 +140,7 @@ export default function DuplicateDetection({
         ))}
       </div>
       <p className="text-xs text-yellow-700 mt-2">
-        These transactions are similar to the one you're entering. Please review to avoid duplicates.
+        These transactions are similar to the one you&apos;re entering. Please review to avoid duplicates.
       </p>
     </div>
   );

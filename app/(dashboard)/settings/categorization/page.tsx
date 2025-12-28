@@ -165,7 +165,7 @@ export default function CategorizationRulesPage() {
             <div className="text-center py-8">Loading...</div>
           ) : rules.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              No categorization rules yet. Click "Add Rule" to create one.
+              No categorization rules yet. Click &quot;Add Rule&quot; to create one.
             </div>
           ) : (
             <div className="overflow-x-auto">

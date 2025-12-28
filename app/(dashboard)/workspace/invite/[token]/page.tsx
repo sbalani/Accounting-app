@@ -108,7 +108,7 @@ export default function AcceptInvitePage() {
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Invitation Accepted!</h2>
             <p className="text-gray-600 mb-4">
-              You've been added to the workspace "{invitation?.workspaces?.name}".
+              You&apos;ve been added to the workspace &quot;{invitation?.workspaces?.name}&quot;.
             </p>
             <p className="text-sm text-gray-500">Redirecting to dashboard...</p>
           </div>
@@ -123,7 +123,7 @@ export default function AcceptInvitePage() {
         <div className="text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">Workspace Invitation</h2>
           <p className="text-gray-600 mb-6">
-            You've been invited to join <strong>{invitation?.workspaces?.name}</strong>
+            You&apos;ve been invited to join <strong>{invitation?.workspaces?.name}</strong>
           </p>
 
           <button

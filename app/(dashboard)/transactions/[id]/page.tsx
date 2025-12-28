@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 
@@ -46,10 +46,27 @@ export default function EditTransactionPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchPaymentMethods();
-    fetchCategories();
-    fetchTransaction();
+  const fetchTransaction = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/transactions/${id}`);
+      if (!response.ok) {
+        throw new Error("Failed to fetch transaction");
+      }
+      const data = await response.json();
+      setTransaction(data.transaction);
+      setPaymentMethodId(data.transaction.payment_method_id);
+      setAmount(Math.abs(data.transaction.amount).toString());
+      setDescription(data.transaction.description || "");
+      setMerchant(data.transaction.merchant || "");
+      setCategory(data.transaction.category || "");
+      setTransactionDate(data.transaction.transaction_date);
+      // Set transaction type based on amount sign (negative = expense, positive = income)
+      setTransactionType(data.transaction.amount < 0 ? "expense" : "income");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
   const fetchPaymentMethods = async () => {
@@ -76,28 +93,11 @@ export default function EditTransactionPage() {
     }
   };
 
-  const fetchTransaction = async () => {
-    try {
-      const response = await fetch(`/api/transactions/${id}`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch transaction");
-      }
-      const data = await response.json();
-      setTransaction(data.transaction);
-      setPaymentMethodId(data.transaction.payment_method_id);
-      setAmount(Math.abs(data.transaction.amount).toString());
-      setDescription(data.transaction.description || "");
-      setMerchant(data.transaction.merchant || "");
-      setCategory(data.transaction.category || "");
-      setTransactionDate(data.transaction.transaction_date);
-      // Set transaction type based on amount sign (negative = expense, positive = income)
-      setTransactionType(data.transaction.amount < 0 ? "expense" : "income");
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => {
+    fetchPaymentMethods();
+    fetchCategories();
+    fetchTransaction();
+  }, [id, fetchTransaction]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

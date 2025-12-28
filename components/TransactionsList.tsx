@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
 interface Transaction {
@@ -23,16 +23,7 @@ export default function TransactionsList() {
   const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>("");
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
 
-  useEffect(() => {
-    fetchPaymentMethods();
-    fetchTransactions();
-  }, []);
-
-  useEffect(() => {
-    fetchTransactions();
-  }, [filterPaymentMethod]);
-
-  const fetchPaymentMethods = async () => {
+  const fetchPaymentMethods = useCallback(async () => {
     try {
       const response = await fetch("/api/payment-methods");
       if (response.ok) {
@@ -42,9 +33,9 @@ export default function TransactionsList() {
     } catch (err) {
       console.error("Error fetching payment methods:", err);
     }
-  };
+  }, []);
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = useCallback(async () => {
     setLoading(true);
     try {
       let url = "/api/transactions";
@@ -63,7 +54,15 @@ export default function TransactionsList() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterPaymentMethod]);
+
+  useEffect(() => {
+    fetchPaymentMethods();
+  }, [fetchPaymentMethods]);
+
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this transaction?")) {
