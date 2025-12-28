@@ -69,7 +69,7 @@ export default function EditTransactionPage() {
     }
   }, [id]);
 
-  const fetchPaymentMethods = async () => {
+  const fetchPaymentMethods = useCallback(async () => {
     try {
       const response = await fetch("/api/payment-methods");
       if (response.ok) {
@@ -79,9 +79,9 @@ export default function EditTransactionPage() {
     } catch (err) {
       console.error("Error fetching payment methods:", err);
     }
-  };
+  }, []);
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const response = await fetch("/api/categories");
       if (response.ok) {
@@ -91,13 +91,13 @@ export default function EditTransactionPage() {
     } catch (err) {
       console.error("Error fetching categories:", err);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchPaymentMethods();
     fetchCategories();
     fetchTransaction();
-  }, [id, fetchTransaction]);
+  }, [fetchPaymentMethods, fetchCategories, fetchTransaction]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

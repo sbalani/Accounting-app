@@ -25,6 +25,11 @@ export default function ReceiptUploadPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [transactionType, setTransactionType] = useState<"expense" | "income">("expense");
   const [error, setError] = useState<string | null>(null);
+  const [showPaymentMethodForm, setShowPaymentMethodForm] = useState(false);
+  const [newPaymentMethodName, setNewPaymentMethodName] = useState("");
+  const [newPaymentMethodType, setNewPaymentMethodType] = useState<"cash" | "bank_account" | "credit_card">("bank_account");
+  const [newPaymentMethodBalance, setNewPaymentMethodBalance] = useState("");
+  const [creatingPaymentMethod, setCreatingPaymentMethod] = useState(false);
 
   useEffect(() => {
     fetchPaymentMethods();
@@ -55,6 +60,50 @@ export default function ReceiptUploadPage() {
       }
     } catch (err) {
       console.error("Error fetching categories:", err);
+    }
+  };
+
+  const handleCreatePaymentMethod = async () => {
+    if (!newPaymentMethodName.trim()) {
+      return;
+    }
+
+    setCreatingPaymentMethod(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/payment-methods", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: newPaymentMethodName.trim(),
+          type: newPaymentMethodType,
+          initial_balance: parseFloat(newPaymentMethodBalance) || 0,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to create payment method");
+      }
+
+      const data = await response.json();
+      
+      // Add the new payment method to the list
+      setPaymentMethods([data.paymentMethod, ...paymentMethods]);
+      // Select the newly created payment method
+      setPaymentMethodId(data.paymentMethod.id);
+      // Reset form
+      setShowPaymentMethodForm(false);
+      setNewPaymentMethodName("");
+      setNewPaymentMethodType("bank_account");
+      setNewPaymentMethodBalance("");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreatingPaymentMethod(false);
     }
   };
 
@@ -201,19 +250,91 @@ export default function ReceiptUploadPage() {
                         </div>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Payment Method</label>
-                        <select
-                          value={paymentMethodId}
-                          onChange={(e) => setPaymentMethodId(e.target.value)}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          required
-                        >
-                          {paymentMethods.map((pm) => (
-                            <option key={pm.id} value={pm.id}>
-                              {pm.name}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="block text-sm font-medium text-gray-700">Payment Method</label>
+                          <button
+                            type="button"
+                            onClick={() => setShowPaymentMethodForm(true)}
+                            className="text-sm text-blue-600 hover:text-blue-500"
+                          >
+                            + Add New
+                          </button>
+                        </div>
+                        {showPaymentMethodForm ? (
+                          <div className="mt-1 p-4 border border-gray-300 rounded-md bg-gray-50">
+                            <h3 className="text-sm font-medium text-gray-900 mb-3">Create Payment Method</h3>
+                            <div className="space-y-3">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700">Name</label>
+                                <input
+                                  type="text"
+                                  value={newPaymentMethodName}
+                                  onChange={(e) => setNewPaymentMethodName(e.target.value)}
+                                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                  placeholder="e.g., Chase Checking"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700">Type</label>
+                                <select
+                                  value={newPaymentMethodType}
+                                  onChange={(e) => setNewPaymentMethodType(e.target.value as any)}
+                                  className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                >
+                                  <option value="cash">Cash</option>
+                                  <option value="bank_account">Bank Account</option>
+                                  <option value="credit_card">Credit Card</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700">Initial Balance</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={newPaymentMethodBalance}
+                                  onChange={(e) => setNewPaymentMethodBalance(e.target.value)}
+                                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                  placeholder="0.00"
+                                />
+                              </div>
+                              <div className="flex justify-end space-x-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowPaymentMethodForm(false);
+                                    setNewPaymentMethodName("");
+                                    setNewPaymentMethodType("bank_account");
+                                    setNewPaymentMethodBalance("");
+                                  }}
+                                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCreatePaymentMethod}
+                                  disabled={!newPaymentMethodName || creatingPaymentMethod}
+                                  className="px-3 py-1.5 text-sm border border-transparent rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {creatingPaymentMethod ? "Creating..." : "Create"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <select
+                            value={paymentMethodId}
+                            onChange={(e) => setPaymentMethodId(e.target.value)}
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            required
+                          >
+                            {paymentMethods.map((pm) => (
+                              <option key={pm.id} value={pm.id}>
+                                {pm.name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Amount</label>
