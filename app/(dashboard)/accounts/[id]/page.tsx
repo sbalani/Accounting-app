@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
+import { SUPPORTED_CURRENCIES } from "@/lib/utils/currency";
+import { formatCurrency } from "@/lib/utils/currency";
 
 interface PaymentMethod {
   id: string;
@@ -10,6 +12,7 @@ interface PaymentMethod {
   type: "cash" | "bank_account" | "credit_card";
   current_balance: number;
   initial_balance: number;
+  currency: string;
   created_at: string;
 }
 
@@ -21,6 +24,8 @@ export default function EditPaymentMethodPage() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [name, setName] = useState("");
   const [type, setType] = useState<"cash" | "bank_account" | "credit_card">("bank_account");
+  const [currency, setCurrency] = useState<string>("USD");
+  const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +41,14 @@ export default function EditPaymentMethodPage() {
         setPaymentMethod(data.paymentMethod);
         setName(data.paymentMethod.name);
         setType(data.paymentMethod.type);
+        setCurrency(data.paymentMethod.currency || "USD");
+        
+        // Get primary currency for display
+        const pmResponse = await fetch("/api/payment-methods");
+        if (pmResponse.ok) {
+          const pmData = await pmResponse.json();
+          setPrimaryCurrency(pmData.primaryCurrency || "USD");
+        }
       } catch (err: any) {
         setError(err.message);
       } finally {
@@ -62,6 +75,7 @@ export default function EditPaymentMethodPage() {
         body: JSON.stringify({
           name,
           type,
+          currency,
         }),
       });
 
@@ -114,11 +128,13 @@ export default function EditPaymentMethodPage() {
           <div className="mb-6 p-4 bg-gray-50 rounded-lg">
             <p className="text-sm text-gray-600 mb-2">Current Balance</p>
             <p className="text-2xl font-bold text-gray-900">
-              {new Intl.NumberFormat("en-US", {
-                style: "currency",
-                currency: "USD",
-              }).format(paymentMethod.current_balance)}
+              {formatCurrency(paymentMethod.current_balance, paymentMethod.currency || "USD")}
             </p>
+            {paymentMethod.currency !== primaryCurrency && (
+              <p className="text-sm text-gray-500 mt-1">
+                ({formatCurrency(paymentMethod.current_balance, primaryCurrency)} in {primaryCurrency})
+              </p>
+            )}
           </div>
 
           {error && (
@@ -157,6 +173,28 @@ export default function EditPaymentMethodPage() {
                 <option value="bank_account">Bank Account</option>
                 <option value="credit_card">Credit Card</option>
               </select>
+            </div>
+
+            <div>
+              <label htmlFor="currency" className="block text-sm font-medium text-gray-700">
+                Currency
+              </label>
+              <select
+                id="currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                required
+              >
+                {SUPPORTED_CURRENCIES.map((curr) => (
+                  <option key={curr} value={curr}>
+                    {curr}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-sm text-gray-500">
+                Default currency for transactions in this account. This can be changed per transaction if needed.
+              </p>
             </div>
 
             <div className="flex justify-end space-x-3">

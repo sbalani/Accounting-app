@@ -38,7 +38,7 @@ export async function PATCH(
     return NextResponse.json({ error: "No workspace found" }, { status: 404 });
   }
 
-  const { name, type, csv_import_config } = await request.json();
+  const { name, type, csv_import_config, currency } = await request.json();
 
   const updateData: any = {};
   if (name !== undefined) updateData.name = name.trim();
@@ -53,6 +53,9 @@ export async function PATCH(
   }
   if (csv_import_config !== undefined) {
     updateData.csv_import_config = csv_import_config;
+  }
+  if (currency !== undefined) {
+    updateData.currency = currency;
   }
 
   const { data: paymentMethod, error } = await supabase

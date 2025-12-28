@@ -15,7 +15,7 @@ export default async function WorkspacePage() {
   // Get user's workspaces
   const { data: workspaceMembers } = await supabase
     .from("workspace_members")
-    .select("workspace_id, role, workspaces(*)")
+    .select("workspace_id, role, workspaces(id, name, created_at, primary_currency)")
     .eq("user_id", user.id)
     .order("joined_at", { ascending: false });
 

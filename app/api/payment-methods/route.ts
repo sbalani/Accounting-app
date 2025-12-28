@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No workspace found" }, { status: 404 });
   }
 
-  const { name, type, initial_balance } = await request.json();
+  const { name, type, initial_balance, currency } = await request.json();
 
   if (!name || !type) {
     return NextResponse.json(
@@ -67,12 +67,24 @@ export async function POST(request: Request) {
 
   const balance = parseFloat(initial_balance) || 0;
 
+  // Get workspace primary currency as default if currency not provided
+  let defaultCurrency = currency;
+  if (!defaultCurrency) {
+    const { data: workspace } = await supabase
+      .from("workspaces")
+      .select("primary_currency")
+      .eq("id", workspaceId)
+      .single();
+    defaultCurrency = workspace?.primary_currency || "USD";
+  }
+
   const { data: paymentMethod, error } = await supabase
     .from("payment_methods")
     .insert({
       workspace_id: workspaceId,
       name: name.trim(),
       type,
+      currency: defaultCurrency,
       initial_balance: balance,
       current_balance: balance,
       created_by: user.id,

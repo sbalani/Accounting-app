@@ -14,10 +14,17 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { name } = await request.json();
+  const { name, primary_currency } = await request.json();
 
-  if (!name || name.trim().length === 0) {
-    return NextResponse.json({ error: "Workspace name is required" }, { status: 400 });
+  const updateData: any = {};
+  if (name !== undefined) {
+    if (!name || name.trim().length === 0) {
+      return NextResponse.json({ error: "Workspace name is required" }, { status: 400 });
+    }
+    updateData.name = name.trim();
+  }
+  if (primary_currency !== undefined) {
+    updateData.primary_currency = primary_currency;
   }
 
   // Check if user is owner of the workspace
@@ -39,7 +46,7 @@ export async function PATCH(
   // Update workspace
   const { data: workspace, error } = await supabase
     .from("workspaces")
-    .update({ name: name.trim() })
+    .update(updateData)
     .eq("id", params.id)
     .select()
     .single();

@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { SUPPORTED_CURRENCIES } from "@/lib/utils/currency";
 
 interface Workspace {
   id: string;
   name: string;
   role: string;
   created_at: string;
+  primary_currency?: string;
 }
 
 interface WorkspaceSettingsProps {
@@ -19,8 +21,20 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
     workspaces[0] || null
   );
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
+  const [editingPrimaryCurrency, setEditingPrimaryCurrency] = useState<string>("USD");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Set editing currency when workspace changes
+    if (editingWorkspaceId) {
+      const ws = workspaceList.find((w) => w.id === editingWorkspaceId);
+      if (ws) {
+        setEditingPrimaryCurrency(ws.primary_currency || "USD");
+      }
+    }
+  }, [editingWorkspaceId, workspaceList]);
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,13 +84,48 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
         throw new Error(data.error || "Failed to update workspace");
       }
 
+      const data = await response.json();
       setWorkspaceList(
-        workspaceList.map((w) => (w.id === workspaceId ? { ...w, name } : w))
+        workspaceList.map((w) => (w.id === workspaceId ? { ...w, name, primary_currency: data.workspace.primary_currency } : w))
       );
       if (selectedWorkspace?.id === workspaceId) {
-        setSelectedWorkspace({ ...selectedWorkspace, name });
+        setSelectedWorkspace({ ...selectedWorkspace, name, primary_currency: data.workspace.primary_currency });
       }
-      window.location.reload();
+      setEditingWorkspaceId(null);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePrimaryCurrency = async (workspaceId: string) => {
+    setError(null);
+    setLoading(true);
+
+    try {
+      const response = await fetch(`/api/workspaces/${workspaceId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ primary_currency: editingPrimaryCurrency }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update primary currency");
+      }
+
+      const data = await response.json();
+      setWorkspaceList(
+        workspaceList.map((w) => (w.id === workspaceId ? { ...w, primary_currency: data.workspace.primary_currency } : w))
+      );
+      if (selectedWorkspace?.id === workspaceId) {
+        setSelectedWorkspace({ ...selectedWorkspace, primary_currency: data.workspace.primary_currency });
+      }
+      setEditingWorkspaceId(null);
+      window.location.reload(); // Reload to update all currency displays
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -100,11 +149,16 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
               key={workspace.id}
               className="flex items-center justify-between p-4 border rounded-lg"
             >
-              <div>
+              <div className="flex-1">
                 <h3 className="font-medium">{workspace.name}</h3>
                 <p className="text-sm text-gray-500">
                   Role: {workspace.role} • Created: {new Date(workspace.created_at).toLocaleDateString()}
                 </p>
+                {workspace.role === "owner" && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    Primary Currency: <span className="font-medium">{workspace.primary_currency || "USD"}</span>
+                  </p>
+                )}
               </div>
               <div className="flex items-center space-x-2">
                 {workspace.role === "owner" && (
@@ -117,12 +171,53 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
                 )}
                 {workspace.role === "owner" && (
                   <button
-                    onClick={() => handleUpdateWorkspace(workspace.id, workspace.name)}
+                    onClick={() => setEditingWorkspaceId(workspace.id)}
                     className="text-blue-600 hover:text-blue-500 text-sm"
                   >
                     Edit
                   </button>
                 )}
+              </div>
+            </div>
+            {editingWorkspaceId === workspace.id && workspace.role === "owner" && (
+              <div className="mt-3 p-4 bg-gray-50 rounded-lg space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Primary Currency
+                  </label>
+                  <select
+                    value={editingPrimaryCurrency}
+                    onChange={(e) => setEditingPrimaryCurrency(e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  >
+                    {SUPPORTED_CURRENCIES.map((currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    All amounts will be displayed in this currency. Transactions in other currencies will be converted automatically.
+                  </p>
+                </div>
+                <div className="flex justify-end space-x-2">
+                  <button
+                    onClick={() => {
+                      setEditingWorkspaceId(null);
+                      setEditingPrimaryCurrency("USD");
+                    }}
+                    className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleUpdatePrimaryCurrency(workspace.id)}
+                    disabled={loading}
+                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? "Saving..." : "Save Currency"}
+                  </button>
+                </div>
               </div>
             </div>
           ))}

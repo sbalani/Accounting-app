@@ -1,16 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { SUPPORTED_CURRENCIES } from "@/lib/utils/currency";
 
 export default function NewPaymentMethodPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [type, setType] = useState<"cash" | "bank_account" | "credit_card">("bank_account");
   const [initialBalance, setInitialBalance] = useState("");
+  const [currency, setCurrency] = useState<string>("USD");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Fetch workspace primary currency as default
+    const fetchPrimaryCurrency = async () => {
+      try {
+        const response = await fetch("/api/payment-methods");
+        if (response.ok) {
+          const data = await response.json();
+          if (data.primaryCurrency) {
+            setCurrency(data.primaryCurrency);
+          }
+        }
+      } catch (err) {
+        // Use default USD if fetch fails
+      }
+    };
+    fetchPrimaryCurrency();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +47,7 @@ export default function NewPaymentMethodPage() {
           name,
           type,
           initial_balance: parseFloat(initialBalance) || 0,
+          currency,
         }),
       });
 
@@ -112,6 +133,28 @@ export default function NewPaymentMethodPage() {
               />
               <p className="mt-1 text-sm text-gray-500">
                 For credit cards, enter the current balance (negative value means debt)
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="currency" className="block text-sm font-medium text-gray-700">
+                Currency
+              </label>
+              <select
+                id="currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                required
+              >
+                {SUPPORTED_CURRENCIES.map((curr) => (
+                  <option key={curr} value={curr}>
+                    {curr}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-sm text-gray-500">
+                Default currency for transactions in this account. This can be changed per transaction if needed.
               </p>
             </div>
 
