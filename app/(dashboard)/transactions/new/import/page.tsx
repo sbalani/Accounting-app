@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import FileUpload from "@/components/FileUpload";
@@ -46,6 +47,26 @@ export default function StatementImportPage() {
   const [parsedTransactions, setParsedTransactions] = useState<ParsedTransaction[]>([]);
   const [processing, setProcessing] = useState(false);
   const [importing, setImporting] = useState(false);
+  
+  // Transfer rules
+  const [transferRules, setTransferRules] = useState<any[]>([]);
+  const [showTransferRulesForm, setShowTransferRulesForm] = useState(false);
+  const [newTransferRule, setNewTransferRule] = useState({
+    name: "",
+    rule_type: "contains" as "contains" | "starts_with" | "ends_with" | "exact_match",
+    match_value: "",
+    transfer_direction: "to" as "to" | "from",
+    target_payment_method_id: "",
+    priority: 0,
+  });
+  const [creatingTransferRule, setCreatingTransferRule] = useState(false);
+  
+  // Payment method creation
+  const [showPaymentMethodForm, setShowPaymentMethodForm] = useState(false);
+  const [newPaymentMethodName, setNewPaymentMethodName] = useState("");
+  const [newPaymentMethodType, setNewPaymentMethodType] = useState<"cash" | "bank_account" | "credit_card">("bank_account");
+  const [newPaymentMethodBalance, setNewPaymentMethodBalance] = useState("");
+  const [creatingPaymentMethod, setCreatingPaymentMethod] = useState(false);
 
   useEffect(() => {
     fetchPaymentMethods();
@@ -93,13 +114,177 @@ export default function StatementImportPage() {
       if (response.ok) {
         const data = await response.json();
         setPaymentMethods(data.paymentMethods || []);
-        if (data.paymentMethods?.length > 0) {
+        if (data.paymentMethods?.length > 0 && !paymentMethodId) {
           setPaymentMethodId(data.paymentMethods[0].id);
         }
       }
     } catch (err) {
       console.error("Error fetching payment methods:", err);
     }
+  };
+
+  const fetchTransferRules = async () => {
+    try {
+      const response = await fetch("/api/transfer-rules");
+      if (response.ok) {
+        const data = await response.json();
+        setTransferRules(data.transferRules || []);
+      }
+    } catch (err) {
+      console.error("Error fetching transfer rules:", err);
+    }
+  };
+
+  const handleCreatePaymentMethod = async () => {
+    if (!newPaymentMethodName.trim()) {
+      return;
+    }
+
+    setCreatingPaymentMethod(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/payment-methods", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: newPaymentMethodName.trim(),
+          type: newPaymentMethodType,
+          initial_balance: parseFloat(newPaymentMethodBalance) || 0,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to create payment method");
+      }
+
+      const data = await response.json();
+      
+      // Add the new payment method to the list
+      setPaymentMethods([data.paymentMethod, ...paymentMethods]);
+      // Reset form
+      setShowPaymentMethodForm(false);
+      setNewPaymentMethodName("");
+      setNewPaymentMethodType("bank_account");
+      setNewPaymentMethodBalance("");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreatingPaymentMethod(false);
+    }
+  };
+
+  const handleCreateTransferRule = async () => {
+    if (!newTransferRule.name.trim() || !newTransferRule.match_value.trim() || !newTransferRule.target_payment_method_id) {
+      setError("Please fill in all required fields");
+      return;
+    }
+
+    setCreatingTransferRule(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/transfer-rules", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newTransferRule),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to create transfer rule");
+      }
+
+      const data = await response.json();
+      
+      // Add the new rule to the list
+      setTransferRules([data.transferRule, ...transferRules]);
+      // Apply the rule to transactions
+      applyTransferRules([data.transferRule]);
+      // Reset form
+      setShowTransferRulesForm(false);
+      setNewTransferRule({
+        name: "",
+        rule_type: "contains",
+        match_value: "",
+        transfer_direction: "to",
+        target_payment_method_id: "",
+        priority: 0,
+      });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreatingTransferRule(false);
+    }
+  };
+
+  const applyTransferRules = (rulesToApply?: any[]) => {
+    const rules = rulesToApply || transferRules;
+    if (rules.length === 0) return;
+
+    setParsedTransactions((prev) =>
+      prev.map((transaction) => {
+        // Skip if already marked as transfer
+        if (transaction.transaction_type === "transfer") {
+          return transaction;
+        }
+
+        const description = (transaction.description || "").toLowerCase();
+        
+        for (const rule of rules) {
+          if (!rule.is_active) continue;
+
+          const matchValue = rule.match_value.toLowerCase();
+          let matches = false;
+
+          switch (rule.rule_type) {
+            case "contains":
+              matches = description.includes(matchValue);
+              break;
+            case "starts_with":
+              matches = description.startsWith(matchValue);
+              break;
+            case "ends_with":
+              matches = description.endsWith(matchValue);
+              break;
+            case "exact_match":
+              matches = description === matchValue;
+              break;
+          }
+
+          if (matches) {
+            if (rule.transfer_direction === "to") {
+              // Money going TO the target account (deposit)
+              return {
+                ...transaction,
+                transaction_type: "transfer" as const,
+                transfer_from_id: paymentMethodId,
+                transfer_to_id: rule.target_payment_method_id,
+              };
+            } else {
+              // Money coming FROM the target account (withdrawal)
+              return {
+                ...transaction,
+                transaction_type: "transfer" as const,
+                transfer_from_id: rule.target_payment_method_id,
+                transfer_to_id: paymentMethodId,
+              };
+            }
+          }
+        }
+
+        return transaction;
+      })
+    );
+  };
+
+  const handleApplyTransferRules = () => {
+    applyTransferRules();
   };
 
   const handleUploadComplete = async (fileData: any) => {
@@ -176,7 +361,13 @@ export default function StatementImportPage() {
         }
 
         const data = await response.json();
-        setParsedTransactions(data.transactions || []);
+        const transactions = data.transactions || [];
+        // Apply transfer rules to detected transactions
+        setParsedTransactions(transactions);
+        // Apply transfer rules after a short delay to ensure state is set
+        setTimeout(() => {
+          applyTransferRules();
+        }, 100);
         setStep("review");
       } catch (err: any) {
         setError(err.message);
@@ -734,22 +925,232 @@ export default function StatementImportPage() {
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Payment Method
+                  Payment Method (Source Account)
                 </label>
-                <select
-                  value={paymentMethodId}
-                  onChange={(e) => setPaymentMethodId(e.target.value)}
-                  className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  required
-                  disabled={importing}
-                >
-                  {paymentMethods.map((pm) => (
-                    <option key={pm.id} value={pm.id}>
-                      {pm.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center space-x-2">
+                  <select
+                    value={paymentMethodId}
+                    onChange={(e) => setPaymentMethodId(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    required
+                    disabled={importing}
+                  >
+                    {paymentMethods.map((pm) => (
+                      <option key={pm.id} value={pm.id}>
+                        {pm.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentMethodForm(true)}
+                    className="px-3 py-2 text-sm text-blue-600 hover:text-blue-500 border border-blue-300 rounded-md hover:bg-blue-50"
+                    disabled={importing}
+                  >
+                    + Add Account
+                  </button>
+                </div>
               </div>
+
+              {/* Transfer Rules Section */}
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900">Transfer Rules</h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Automatically detect transfers based on description patterns
+                    </p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={handleApplyTransferRules}
+                      className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50"
+                      disabled={importing || transferRules.length === 0}
+                    >
+                      Apply Rules
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowTransferRulesForm(true)}
+                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                      disabled={importing}
+                    >
+                      + Add Rule
+                    </button>
+                  </div>
+                </div>
+                {transferRules.length > 0 && (
+                  <div className="space-y-1">
+                    {transferRules.map((rule) => (
+                      <div key={rule.id} className="text-xs text-gray-600 bg-white p-2 rounded border">
+                        <span className="font-medium">{rule.name}:</span> {rule.rule_type} "{rule.match_value}" → {rule.transfer_direction === "to" ? "To" : "From"} {paymentMethods.find(pm => pm.id === rule.target_payment_method_id)?.name || "Unknown"}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Payment Method Creation Form */}
+              {showPaymentMethodForm && (
+                <div className="border rounded-lg p-4 bg-white">
+                  <h3 className="text-sm font-medium text-gray-900 mb-3">Create New Account</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Name</label>
+                      <input
+                        type="text"
+                        value={newPaymentMethodName}
+                        onChange={(e) => setNewPaymentMethodName(e.target.value)}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        placeholder="e.g., Flexible Cash Funds"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Type</label>
+                      <select
+                        value={newPaymentMethodType}
+                        onChange={(e) => setNewPaymentMethodType(e.target.value as any)}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="bank_account">Bank Account</option>
+                        <option value="credit_card">Credit Card</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Initial Balance</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={newPaymentMethodBalance}
+                        onChange={(e) => setNewPaymentMethodBalance(e.target.value)}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPaymentMethodForm(false);
+                          setNewPaymentMethodName("");
+                          setNewPaymentMethodType("bank_account");
+                          setNewPaymentMethodBalance("");
+                        }}
+                        className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreatePaymentMethod}
+                        disabled={creatingPaymentMethod}
+                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {creatingPaymentMethod ? "Creating..." : "Create"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Transfer Rule Creation Form */}
+              {showTransferRulesForm && (
+                <div className="border rounded-lg p-4 bg-white">
+                  <h3 className="text-sm font-medium text-gray-900 mb-3">Create Transfer Rule</h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Rule Name</label>
+                      <input
+                        type="text"
+                        value={newTransferRule.name}
+                        onChange={(e) => setNewTransferRule({ ...newTransferRule, name: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        placeholder="e.g., To Flexible Cash Funds"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700">Match Type</label>
+                        <select
+                          value={newTransferRule.rule_type}
+                          onChange={(e) => setNewTransferRule({ ...newTransferRule, rule_type: e.target.value as any })}
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        >
+                          <option value="contains">Contains</option>
+                          <option value="starts_with">Starts With</option>
+                          <option value="ends_with">Ends With</option>
+                          <option value="exact_match">Exact Match</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700">Direction</label>
+                        <select
+                          value={newTransferRule.transfer_direction}
+                          onChange={(e) => setNewTransferRule({ ...newTransferRule, transfer_direction: e.target.value as any })}
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        >
+                          <option value="to">To Account (Deposit)</option>
+                          <option value="from">From Account (Withdrawal)</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Match Value</label>
+                      <input
+                        type="text"
+                        value={newTransferRule.match_value}
+                        onChange={(e) => setNewTransferRule({ ...newTransferRule, match_value: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        placeholder="e.g., To Flexible Cash Funds"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700">Target Account</label>
+                      <select
+                        value={newTransferRule.target_payment_method_id}
+                        onChange={(e) => setNewTransferRule({ ...newTransferRule, target_payment_method_id: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                      >
+                        <option value="">Select account</option>
+                        {paymentMethods.map((pm) => (
+                          <option key={pm.id} value={pm.id}>
+                            {pm.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTransferRulesForm(false);
+                          setNewTransferRule({
+                            name: "",
+                            rule_type: "contains",
+                            match_value: "",
+                            transfer_direction: "to",
+                            target_payment_method_id: "",
+                            priority: 0,
+                          });
+                        }}
+                        className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateTransferRule}
+                        disabled={creatingTransferRule}
+                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {creatingTransferRule ? "Creating..." : "Create Rule"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="border rounded-lg overflow-hidden">
                 <div className="bg-gray-50 px-4 py-3 border-b">
@@ -757,7 +1158,7 @@ export default function StatementImportPage() {
                     Found {parsedTransactions.length} transactions
                   </h2>
                   <p className="text-sm text-gray-600 mt-1">
-                    Review the transactions below. Duplicates will be automatically skipped during import.
+                    Review and edit transactions below. Mark transfers and select accounts. Duplicates will be automatically skipped during import.
                   </p>
                 </div>
                 <div className="max-h-96 overflow-y-auto">
@@ -776,28 +1177,29 @@ export default function StatementImportPage() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Amount
                         </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Type
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Transfer
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {parsedTransactions.map((transaction, index) => (
-                        <tr key={index}>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {transaction.transaction_date}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900">
-                            {transaction.description || "-"}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-900">
-                            {transaction.merchant || "-"}
-                          </td>
-                          <td
-                            className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${
-                              transaction.amount >= 0 ? "text-green-600" : "text-red-600"
-                            }`}
-                          >
-                            {formatAmount(transaction.amount)}
-                          </td>
-                        </tr>
+                        <TransactionRow
+                          key={index}
+                          transaction={transaction}
+                          index={index}
+                          paymentMethods={paymentMethods}
+                          paymentMethodId={paymentMethodId}
+                          onUpdate={(updated) => {
+                            setParsedTransactions((prev) =>
+                              prev.map((t, i) => (i === index ? updated : t))
+                            );
+                          }}
+                          onCreatePaymentMethod={() => setShowPaymentMethodForm(true)}
+                        />
                       ))}
                     </tbody>
                   </table>
@@ -849,5 +1251,168 @@ export default function StatementImportPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Transaction Row Component for editable transactions
+function TransactionRow({
+  transaction,
+  index,
+  paymentMethods,
+  paymentMethodId,
+  onUpdate,
+  onCreatePaymentMethod,
+}: {
+  transaction: ParsedTransaction;
+  index: number;
+  paymentMethods: any[];
+  paymentMethodId: string;
+  onUpdate: (transaction: ParsedTransaction) => void;
+  onCreatePaymentMethod: () => void;
+}) {
+  const [isTransfer, setIsTransfer] = useState(transaction.transaction_type === "transfer");
+  const [transferFrom, setTransferFrom] = useState(transaction.transfer_from_id || paymentMethodId);
+  const [transferTo, setTransferTo] = useState(transaction.transfer_to_id || "");
+
+  useEffect(() => {
+    setIsTransfer(transaction.transaction_type === "transfer");
+    setTransferFrom(transaction.transfer_from_id || paymentMethodId);
+    setTransferTo(transaction.transfer_to_id || "");
+  }, [transaction, paymentMethodId]);
+
+  const handleTransferToggle = (checked: boolean) => {
+    setIsTransfer(checked);
+    if (checked) {
+      onUpdate({
+        ...transaction,
+        transaction_type: "transfer",
+        transfer_from_id: transferFrom,
+        transfer_to_id: transferTo || paymentMethodId,
+      });
+    } else {
+      // Determine type based on amount
+      const type = transaction.amount >= 0 ? "income" : "expense";
+      onUpdate({
+        ...transaction,
+        transaction_type: type,
+        transfer_from_id: null,
+        transfer_to_id: null,
+      });
+    }
+  };
+
+  const handleTransferFromChange = (value: string) => {
+    setTransferFrom(value);
+    onUpdate({
+      ...transaction,
+      transfer_from_id: value,
+    });
+  };
+
+  const handleTransferToChange = (value: string) => {
+    setTransferTo(value);
+    onUpdate({
+      ...transaction,
+      transfer_to_id: value,
+    });
+  };
+
+  const formatAmount = (amount: number) => {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+    }).format(amount);
+  };
+
+  return (
+    <tr className={isTransfer ? "bg-blue-50" : ""}>
+      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+        {transaction.transaction_date}
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-900">
+        {transaction.description || "-"}
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-900">
+        {transaction.merchant || "-"}
+      </td>
+      <td
+        className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${
+          isTransfer ? "text-blue-600" : transaction.amount >= 0 ? "text-green-600" : "text-red-600"
+        }`}
+      >
+        {formatAmount(Math.abs(transaction.amount))}
+      </td>
+      <td className="px-4 py-3 text-sm">
+        {isTransfer ? (
+          <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
+            Transfer
+          </span>
+        ) : transaction.amount >= 0 ? (
+          <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">
+            Income
+          </span>
+        ) : (
+          <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded">
+            Expense
+          </span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-sm">
+        <div className="space-y-2">
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={isTransfer}
+              onChange={(e) => handleTransferToggle(e.target.checked)}
+              className="mr-1"
+            />
+            <span className="text-xs text-gray-700">Mark as Transfer</span>
+          </label>
+          {isTransfer && (
+            <div className="space-y-1 ml-5">
+              <div>
+                <label className="block text-xs text-gray-600 mb-0.5">From:</label>
+                <select
+                  value={transferFrom}
+                  onChange={(e) => handleTransferFromChange(e.target.value)}
+                  className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {paymentMethods.map((pm) => (
+                    <option key={pm.id} value={pm.id}>
+                      {pm.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-0.5">To:</label>
+                <div className="flex items-center space-x-1">
+                  <select
+                    value={transferTo}
+                    onChange={(e) => handleTransferToChange(e.target.value)}
+                    className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select account</option>
+                    {paymentMethods.map((pm) => (
+                      <option key={pm.id} value={pm.id}>
+                        {pm.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={onCreatePaymentMethod}
+                    className="text-xs text-blue-600 hover:text-blue-500 px-1"
+                    title="Create new account"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }

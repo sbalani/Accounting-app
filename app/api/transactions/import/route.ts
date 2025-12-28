@@ -63,12 +63,21 @@ export async function POST(request: Request) {
   const duplicateTransactions = [];
 
   for (const transaction of transactions) {
+    const isTransfer = transaction.transaction_type === "transfer";
+    const transactionAmount = Math.abs(parseFloat(transaction.amount));
+    
+    // For transfers, use transfer_from_id as the payment_method_id
+    // For regular transactions, use the provided payment_method_id
+    const sourcePaymentMethodId = isTransfer && transaction.transfer_from_id 
+      ? transaction.transfer_from_id 
+      : payment_method_id;
+
     // Check for duplicates using the database function
     const { data: duplicates } = await supabase.rpc("find_duplicate_transactions", {
       workspace_id_param: workspaceId,
-      amount_param: parseFloat(transaction.amount),
+      amount_param: transactionAmount,
       transaction_date_param: transaction.transaction_date,
-      payment_method_id_param: payment_method_id,
+      payment_method_id_param: sourcePaymentMethodId,
     });
 
     if (duplicates && duplicates.length > 0) {
@@ -77,17 +86,72 @@ export async function POST(request: Request) {
         duplicate_of: duplicates[0].id,
       });
     } else {
-      importedTransactions.push({
+      // Determine transaction type
+      let transactionType: "expense" | "income" | "transfer" = "expense";
+      if (isTransfer) {
+        transactionType = "transfer";
+      } else if (transaction.amount >= 0) {
+        transactionType = "income";
+      }
+
+      const transactionData: any = {
         workspace_id: workspaceId,
-        payment_method_id,
-        amount: parseFloat(transaction.amount),
+        payment_method_id: sourcePaymentMethodId,
+        amount: isTransfer ? -transactionAmount : parseFloat(transaction.amount), // Negative for transfers from this account
         description: transaction.description?.trim() || null,
         merchant: transaction.merchant?.trim() || null,
         category: transaction.category?.trim() || null,
         transaction_date: transaction.transaction_date,
         source: transaction.source || "csv",
+        transaction_type: transactionType,
         created_by: user.id,
-      });
+      };
+
+      // Add transfer fields if it's a transfer
+      if (isTransfer) {
+        transactionData.transfer_from_id = transaction.transfer_from_id || sourcePaymentMethodId;
+        transactionData.transfer_to_id = transaction.transfer_to_id;
+      }
+
+      importedTransactions.push(transactionData);
+
+      // For transfers, also create the corresponding transaction in the destination account
+      if (isTransfer && transaction.transfer_to_id) {
+        // Verify destination account belongs to workspace
+        const { data: destPaymentMethod } = await supabase
+          .from("payment_methods")
+          .select("id")
+          .eq("id", transaction.transfer_to_id)
+          .eq("workspace_id", workspaceId)
+          .maybeSingle();
+
+        if (destPaymentMethod) {
+          // Check for duplicates in destination account
+          const { data: destDuplicates } = await supabase.rpc("find_duplicate_transactions", {
+            workspace_id_param: workspaceId,
+            amount_param: transactionAmount,
+            transaction_date_param: transaction.transaction_date,
+            payment_method_id_param: transaction.transfer_to_id,
+          });
+
+          if (!destDuplicates || destDuplicates.length === 0) {
+            importedTransactions.push({
+              workspace_id: workspaceId,
+              payment_method_id: transaction.transfer_to_id,
+              amount: transactionAmount, // Positive for transfers to this account
+              description: transaction.description?.trim() || null,
+              merchant: transaction.merchant?.trim() || null,
+              category: transaction.category?.trim() || null,
+              transaction_date: transaction.transaction_date,
+              source: transaction.source || "csv",
+              transaction_type: "transfer",
+              transfer_from_id: transaction.transfer_from_id || sourcePaymentMethodId,
+              transfer_to_id: transaction.transfer_to_id,
+              created_by: user.id,
+            });
+          }
+        }
+      }
     }
   }
 

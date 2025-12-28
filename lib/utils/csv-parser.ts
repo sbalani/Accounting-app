@@ -27,6 +27,9 @@ export interface ParsedTransaction {
   merchant: string | null;
   category: string | null;
   transaction_date: string;
+  transaction_type?: "expense" | "income" | "transfer";
+  transfer_from_id?: string | null;
+  transfer_to_id?: string | null;
 }
 
 /**
