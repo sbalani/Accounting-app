@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
 import { parseCSVStatement } from "@/lib/utils/transaction-parser";
+import { parseCSVWithConfig, CSVImportConfig } from "@/lib/utils/csv-parser";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -81,6 +82,7 @@ export async function POST(request: Request) {
         payment_method_id,
         amount: parseFloat(transaction.amount),
         description: transaction.description?.trim() || null,
+        merchant: transaction.merchant?.trim() || null,
         category: transaction.category?.trim() || null,
         transaction_date: transaction.transaction_date,
         source: transaction.source || "csv",
@@ -125,17 +127,38 @@ export async function GET(request: Request) {
 
   try {
     if (fileType === "csv") {
-      // Fetch CSV content
-      const response = await fetch(fileUrl);
-      if (!response.ok) {
-        throw new Error("Failed to fetch CSV file");
+      // Check if we have CSV config in query params
+      const configParam = searchParams.get("csv_config");
+      
+      if (configParam) {
+        // Use new config-based parsing
+        const config: CSVImportConfig = JSON.parse(decodeURIComponent(configParam));
+        
+        // Fetch CSV content
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+          throw new Error("Failed to fetch CSV file");
+        }
+        const csvContent = await response.text();
+
+        // Parse CSV with config
+        const transactions = parseCSVWithConfig(csvContent, config);
+
+        return NextResponse.json({ transactions });
+      } else {
+        // Fallback to old parsing method for backward compatibility
+        // Fetch CSV content
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+          throw new Error("Failed to fetch CSV file");
+        }
+        const csvContent = await response.text();
+
+        // Parse CSV
+        const transactions = parseCSVStatement(csvContent);
+
+        return NextResponse.json({ transactions });
       }
-      const csvContent = await response.text();
-
-      // Parse CSV
-      const transactions = parseCSVStatement(csvContent);
-
-      return NextResponse.json({ transactions });
     } else if (fileType === "pdf") {
       // For PDF, we'll use OpenAI Vision API
       const apiKey = process.env.OPENAI_API_KEY;
