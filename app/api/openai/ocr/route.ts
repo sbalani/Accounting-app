@@ -82,7 +82,7 @@ export async function POST(request: Request) {
             content: [
               {
                 type: "text",
-                text: "Extract transaction information from this receipt/image. Return a JSON object with the following fields: amount (number), description (string), category (string or null), transaction_date (YYYY-MM-DD format). If you cannot determine a field, use null.",
+                text: "Extract transaction information from this receipt/image. Return a JSON object with the following fields: amount (number), description (string), merchant (string or null - store/vendor name), category (string or null), transaction_date (YYYY-MM-DD format). If you cannot determine a field, use null.",
               },
               {
                 type: "image_url",

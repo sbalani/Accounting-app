@@ -9,6 +9,7 @@ import DuplicateDetection from "@/components/DuplicateDetection";
 interface ParsedTransaction {
   amount: number;
   description: string | null;
+  merchant?: string | null;
   category: string | null;
   transaction_date: string;
 }
@@ -21,10 +22,13 @@ export default function ReceiptUploadPage() {
   const [saving, setSaving] = useState(false);
   const [paymentMethodId, setPaymentMethodId] = useState("");
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [transactionType, setTransactionType] = useState<"expense" | "income">("expense");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPaymentMethods();
+    fetchCategories();
   }, []);
 
   const fetchPaymentMethods = async () => {
@@ -39,6 +43,18 @@ export default function ReceiptUploadPage() {
       }
     } catch (err) {
       console.error("Error fetching payment methods:", err);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const response = await fetch("/api/categories");
+      if (response.ok) {
+        const data = await response.json();
+        setCategories(data.categories || []);
+      }
+    } catch (err) {
+      console.error("Error fetching categories:", err);
     }
   };
 
@@ -82,6 +98,14 @@ export default function ReceiptUploadPage() {
     setError(null);
 
     try {
+      const amountValue = parseFloat(parsedTransaction.amount.toString());
+      if (isNaN(amountValue) || amountValue === 0) {
+        throw new Error("Amount must be a non-zero number");
+      }
+
+      // Calculate final amount based on transaction type
+      const finalAmount = transactionType === "expense" ? -Math.abs(amountValue) : Math.abs(amountValue);
+
       const response = await fetch("/api/transactions", {
         method: "POST",
         headers: {
@@ -89,9 +113,10 @@ export default function ReceiptUploadPage() {
         },
         body: JSON.stringify({
           payment_method_id: paymentMethodId,
-          amount: parsedTransaction.amount,
-          description: parsedTransaction.description,
-          category: parsedTransaction.category,
+          amount: finalAmount,
+          description: parsedTransaction.description?.trim() || null,
+          merchant: parsedTransaction.merchant?.trim() || null,
+          category: parsedTransaction.category || null,
           transaction_date: parsedTransaction.transaction_date,
           source: "receipt",
         }),
@@ -149,6 +174,48 @@ export default function ReceiptUploadPage() {
                     <h2 className="font-semibold mb-4">Extracted Transaction Details</h2>
                     <div className="space-y-3">
                       <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Transaction Type
+                        </label>
+                        <div className="flex space-x-4">
+                          <label className="flex items-center text-gray-900">
+                            <input
+                              type="radio"
+                              value="expense"
+                              checked={transactionType === "expense"}
+                              onChange={(e) => setTransactionType(e.target.value as "expense" | "income")}
+                              className="mr-2"
+                            />
+                            Expense
+                          </label>
+                          <label className="flex items-center text-gray-900">
+                            <input
+                              type="radio"
+                              value="income"
+                              checked={transactionType === "income"}
+                              onChange={(e) => setTransactionType(e.target.value as "expense" | "income")}
+                              className="mr-2"
+                            />
+                            Income
+                          </label>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Payment Method</label>
+                        <select
+                          value={paymentMethodId}
+                          onChange={(e) => setPaymentMethodId(e.target.value)}
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          required
+                        >
+                          {paymentMethods.map((pm) => (
+                            <option key={pm.id} value={pm.id}>
+                              {pm.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
                         <label className="block text-sm font-medium text-gray-700">Amount</label>
                         <input
                           type="number"
@@ -157,7 +224,7 @@ export default function ReceiptUploadPage() {
                           onChange={(e) =>
                             setParsedTransaction({
                               ...parsedTransaction,
-                              amount: parseFloat(e.target.value),
+                              amount: parseFloat(e.target.value) || 0,
                             })
                           }
                           className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
@@ -178,6 +245,41 @@ export default function ReceiptUploadPage() {
                         />
                       </div>
                       <div>
+                        <label className="block text-sm font-medium text-gray-700">Merchant/Vendor</label>
+                        <input
+                          type="text"
+                          value={parsedTransaction.merchant || ""}
+                          onChange={(e) =>
+                            setParsedTransaction({
+                              ...parsedTransaction,
+                              merchant: e.target.value,
+                            })
+                          }
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          placeholder="Store or vendor name (optional)"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Category</label>
+                        <select
+                          value={parsedTransaction.category || ""}
+                          onChange={(e) =>
+                            setParsedTransaction({
+                              ...parsedTransaction,
+                              category: e.target.value,
+                            })
+                          }
+                          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        >
+                          <option value="">Select a category (optional)</option>
+                          {categories.map((cat) => (
+                            <option key={cat.id} value={cat.name}>
+                              {cat.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
                         <label className="block text-sm font-medium text-gray-700">Date</label>
                         <input
                           type="date"
@@ -191,27 +293,12 @@ export default function ReceiptUploadPage() {
                           className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                         />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Payment Method</label>
-                        <select
-                          value={paymentMethodId}
-                          onChange={(e) => setPaymentMethodId(e.target.value)}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          required
-                        >
-                          {paymentMethods.map((pm) => (
-                            <option key={pm.id} value={pm.id}>
-                              {pm.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
                     </div>
                   </div>
 
                   {paymentMethodId && parsedTransaction.amount && parsedTransaction.transaction_date && (
                     <DuplicateDetection
-                      amount={parsedTransaction.amount}
+                      amount={Math.abs(parsedTransaction.amount)}
                       transactionDate={parsedTransaction.transaction_date}
                       paymentMethodId={paymentMethodId}
                     />
