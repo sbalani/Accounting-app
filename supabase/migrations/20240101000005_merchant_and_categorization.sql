@@ -4,7 +4,7 @@ alter table public.transactions
 
 -- Create categorization_rules table for user-defined categorization rules
 create table if not exists public.categorization_rules (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid references public.workspaces(id) on delete cascade not null,
   name text not null,
   rule_type text not null check (rule_type in ('exact_match', 'contains', 'ai_context')),

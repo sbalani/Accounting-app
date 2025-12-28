@@ -1,9 +1,6 @@
--- Enable UUID extension
-create extension if not exists "uuid-ossp";
-
 -- Create workspaces table
 create table public.workspaces (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   created_by uuid references auth.users(id) on delete cascade not null
@@ -11,7 +8,7 @@ create table public.workspaces (
 
 -- Create workspace_members table
 create table public.workspace_members (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid references public.workspaces(id) on delete cascade not null,
   user_id uuid references auth.users(id) on delete cascade not null,
   role text not null check (role in ('owner', 'member')),
@@ -22,7 +19,7 @@ create table public.workspace_members (
 
 -- Create workspace_invitations table
 create table public.workspace_invitations (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid references public.workspaces(id) on delete cascade not null,
   email text not null,
   invited_by uuid references auth.users(id) on delete cascade not null,
@@ -34,7 +31,7 @@ create table public.workspace_invitations (
 
 -- Create payment_methods table
 create table public.payment_methods (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid references public.workspaces(id) on delete cascade not null,
   name text not null,
   type text not null check (type in ('cash', 'bank_account', 'credit_card')),
@@ -46,7 +43,7 @@ create table public.payment_methods (
 
 -- Create transactions table
 create table public.transactions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid references public.workspaces(id) on delete cascade not null,
   payment_method_id uuid references public.payment_methods(id) on delete restrict not null,
   amount numeric(15, 2) not null,
@@ -61,7 +58,7 @@ create table public.transactions (
 
 -- Create transaction_categories table
 create table public.transaction_categories (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   workspace_id uuid references public.workspaces(id) on delete cascade,
   name text not null,
   color text,
