@@ -120,7 +120,10 @@ export default function StatementImportPage() {
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ file_url: fileData.publicUrl }),
+          body: JSON.stringify({ 
+            file_url: fileData.signedUrl || fileData.publicUrl,
+            file_path: fileData.filePath || fileData.filePathFull,
+          }),
         });
 
         if (!response.ok) {
@@ -159,8 +162,12 @@ export default function StatementImportPage() {
       // PDF handling (existing flow)
       setProcessing(true);
       try {
+        const fileUrl = fileData.signedUrl || fileData.publicUrl;
+        if (!fileUrl) {
+          throw new Error("File URL not available");
+        }
         const response = await fetch(
-          `/api/transactions/import?file_url=${encodeURIComponent(fileData.publicUrl)}&file_type=pdf`
+          `/api/transactions/import?file_url=${encodeURIComponent(fileUrl)}&file_type=pdf`
         );
 
         if (!response.ok) {
@@ -195,9 +202,13 @@ export default function StatementImportPage() {
         amountFormat,
       };
 
+      const fileUrl = uploadedFile.signedUrl || uploadedFile.publicUrl;
+      if (!fileUrl) {
+        throw new Error("File URL not available");
+      }
       const response = await fetch(
         `/api/transactions/import?file_url=${encodeURIComponent(
-          uploadedFile.publicUrl
+          fileUrl
         )}&file_type=csv&csv_config=${encodeURIComponent(JSON.stringify(config))}`
       );
 

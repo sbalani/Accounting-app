@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 import {
   detectHeaderRow,
   suggestColumnMapping,
@@ -10,22 +11,47 @@ import {
  * Analyzes a CSV file and returns header detection and column mapping suggestions
  */
 export async function POST(request: Request) {
-  const { file_url } = await request.json();
+  const { file_url, file_path } = await request.json();
 
-  if (!file_url) {
+  if (!file_url && !file_path) {
     return NextResponse.json(
-      { error: "File URL is required" },
+      { error: "File URL or file path is required" },
       { status: 400 }
     );
   }
 
   try {
-    // Fetch CSV content
-    const response = await fetch(file_url);
-    if (!response.ok) {
-      throw new Error("Failed to fetch CSV file");
+    let csvContent: string;
+
+    // If we have a file_path, download from Supabase Storage (more reliable for private buckets)
+    if (file_path) {
+      const supabase = await createClient();
+      // Parse bucket name and path
+      const bucketName = file_path.startsWith("statements/") ? "statements" : "statements";
+      const path = file_path.startsWith("statements/") 
+        ? file_path.substring("statements/".length) 
+        : file_path;
+      
+      const { data, error: downloadError } = await supabase.storage
+        .from(bucketName)
+        .download(path);
+
+      if (downloadError || !data) {
+        return NextResponse.json(
+          { error: downloadError?.message || "Failed to download file from storage" },
+          { status: 500 }
+        );
+      }
+
+      csvContent = await data.text();
+    } else {
+      // Fallback to fetching from URL
+      const response = await fetch(file_url);
+      if (!response.ok) {
+        throw new Error("Failed to fetch CSV file");
+      }
+      csvContent = await response.text();
     }
-    const csvContent = await response.text();
 
     // Split into lines for analysis
     const lines = csvContent.split(/\r?\n/).filter((line) => line.trim());
