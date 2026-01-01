@@ -231,7 +231,7 @@ export default function AutocompleteDropdown({
                   />
                 </svg>
                 <span className="text-sm text-green-700">
-                  Create "{inputValue.trim()}"
+                  Create &quot;{inputValue.trim()}&quot;
                 </span>
               </div>
             </div>
