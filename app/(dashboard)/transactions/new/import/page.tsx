@@ -10,6 +10,7 @@ import {
   AmountFormat,
   CSVImportConfig,
   ParsedTransaction,
+  suggestColumnMapping,
 } from "@/lib/utils/csv-parser";
 import { formatCurrency } from "@/lib/utils/currency";
 
@@ -32,6 +33,7 @@ export default function StatementImportPage() {
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvPreview, setCsvPreview] = useState<string[][]>([]);
   const [headerRow, setHeaderRow] = useState<number>(0);
+  const [detectedHeaderRow, setDetectedHeaderRow] = useState<number>(0);
   const [columnMapping, setColumnMapping] = useState<CSVColumnMapping>({
     date: null,
     description: null,
@@ -331,9 +333,16 @@ export default function StatementImportPage() {
         }
 
         const data = await response.json();
-        setCsvHeaders(data.headers || []);
         setCsvPreview(data.preview || []);
-        setHeaderRow(data.headerRow || 0);
+        const detectedRow = data.headerRow || 0;
+        setDetectedHeaderRow(detectedRow);
+        setHeaderRow(detectedRow);
+        
+        // Extract headers from the detected header row
+        const previewData = data.preview || [];
+        const headerRowData = previewData[detectedRow] || [];
+        const headers = headerRowData.map((cell: any) => String(cell || ""));
+        setCsvHeaders(headers);
         setColumnMapping(data.suggestedMapping || columnMapping);
 
         // Check if payment method has saved mapping
@@ -345,7 +354,13 @@ export default function StatementImportPage() {
               const savedConfig = pmData.paymentMethod.csv_import_config;
               setColumnMapping(savedConfig.columnMapping || columnMapping);
               setAmountFormat(savedConfig.amountFormat || "unified");
-              setHeaderRow(savedConfig.headerRow || 0);
+              // Use saved header row if available, otherwise use detected
+              const savedHeaderRow = savedConfig.headerRow !== undefined ? savedConfig.headerRow : detectedRow;
+              setHeaderRow(savedHeaderRow);
+              // Update headers based on saved header row
+              const savedHeaderRowData = previewData[savedHeaderRow] || [];
+              const savedHeaders = savedHeaderRowData.map((cell: any) => String(cell || ""));
+              setCsvHeaders(savedHeaders);
               setSaveMapping(true); // Auto-suggest saving if config exists
             }
           }
@@ -588,6 +603,38 @@ export default function StatementImportPage() {
                 </select>
               </div>
 
+              {/* Header Row Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Header Row (1-indexed)
+                </label>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max={csvPreview.length}
+                    value={headerRow + 1}
+                    onChange={(e) => {
+                      const newHeaderRow = Math.max(0, Math.min(csvPreview.length - 1, parseInt(e.target.value) - 1));
+                      setHeaderRow(newHeaderRow);
+                      
+                      // Update headers from the new header row
+                      const headerRowData = csvPreview[newHeaderRow] || [];
+                      const newHeaders = headerRowData.map((cell: any) => String(cell || ""));
+                      setCsvHeaders(newHeaders);
+                      
+                      // Recalculate column mapping suggestions
+                      const newMapping = suggestColumnMapping(newHeaders);
+                      setColumnMapping(newMapping);
+                    }}
+                    className="block w-32 px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  />
+                  <span className="text-sm text-gray-500">
+                    (Automatically detected: Row {detectedHeaderRow + 1})
+                  </span>
+                </div>
+              </div>
+
               {/* CSV/XLSX Preview */}
               <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-3">{fileType === "xlsx" ? "Excel" : "CSV"} Preview</h3>
@@ -595,12 +642,13 @@ export default function StatementImportPage() {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                          Row
+                        </th>
                         {csvHeaders.map((header, index) => (
                           <th
                             key={index}
-                            className={`px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${
-                              index === headerRow ? "bg-blue-100" : ""
-                            }`}
+                            className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                           >
                             {header || `Column ${index + 1}`}
                           </th>
@@ -608,20 +656,33 @@ export default function StatementImportPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {csvPreview.slice(0, 5).map((row, rowIndex) => (
-                        <tr key={rowIndex}>
-                          {row.map((cell, cellIndex) => (
-                            <td key={cellIndex} className="px-3 py-2 text-sm text-gray-900">
-                              {cell || "-"}
+                      {csvPreview.slice(headerRow, headerRow + 10).map((row, rowIndex) => {
+                        const actualRowIndex = headerRow + rowIndex;
+                        const isHeaderRow = actualRowIndex === headerRow;
+                        return (
+                          <tr 
+                            key={actualRowIndex} 
+                            className={isHeaderRow ? "bg-blue-50 font-medium" : ""}
+                          >
+                            <td className="px-3 py-2 text-sm text-gray-500 font-mono">
+                              {actualRowIndex + 1}
                             </td>
-                          ))}
-                        </tr>
-                      ))}
+                            {row.map((cell, cellIndex) => (
+                              <td 
+                                key={cellIndex} 
+                                className={`px-3 py-2 text-sm ${isHeaderRow ? "text-blue-700 font-medium" : "text-gray-900"}`}
+                              >
+                                {cell || "-"}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
                 <p className="mt-2 text-sm text-gray-500">
-                  Row {headerRow + 1} is detected as the header row
+                  Showing rows starting from row {headerRow + 1} (header row highlighted in blue). Rows above this will be ignored during import.
                 </p>
               </div>
 

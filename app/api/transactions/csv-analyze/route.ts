@@ -57,8 +57,8 @@ export async function POST(request: Request) {
         buffer = await response.arrayBuffer();
       }
 
-      // Parse XLSX to array
-      const data = getXLSXPreview(buffer, 10);
+      // Parse XLSX to array - get more rows for better preview
+      const data = getXLSXPreview(buffer, 100);
       
       // Detect header row
       const headerRow = detectHeaderRowFromArray(data);
@@ -124,8 +124,8 @@ export async function POST(request: Request) {
       // Detect header row
       const headerRow = detectHeaderRow(lines);
 
-      // Get preview
-      const preview = getCSVPreview(csvContent, 10);
+      // Get preview - get more rows for better preview
+      const preview = getCSVPreview(csvContent, 100);
 
       // Get headers
       const headerLine = lines[headerRow];
