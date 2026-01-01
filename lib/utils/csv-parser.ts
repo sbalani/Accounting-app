@@ -208,25 +208,32 @@ function parseNumber(value: string, numberFormat: NumberFormat = "us"): number {
   
   let cleaned = value.trim();
   
+  // Extract and preserve the sign (negative or positive)
+  const isNegative = cleaned.startsWith("-") || cleaned.startsWith("−"); // Handle both minus and minus sign
+  cleaned = cleaned.replace(/^[-−]/, "").trim(); // Remove leading minus sign
+  
   if (numberFormat === "european") {
     // European format: comma as decimal separator, period as thousands separator
-    // Examples: "13,99" = 13.99, "1.234,56" = 1234.56
+    // Examples: "13,99" = 13.99, "1.234,56" = 1234.56, "-13,99" = -13.99
     // Remove thousands separators (periods) first
     cleaned = cleaned.replace(/\./g, "");
     // Replace comma decimal separator with period
     cleaned = cleaned.replace(/,/g, ".");
   } else {
     // US format: period as decimal separator, comma as thousands separator
-    // Examples: "13.99" = 13.99, "1,234.56" = 1234.56
+    // Examples: "13.99" = 13.99, "1,234.56" = 1234.56, "-13.99" = -13.99
     // Remove thousands separators (commas)
     cleaned = cleaned.replace(/,/g, "");
   }
   
-  // Remove any remaining non-numeric characters except minus sign and period
-  cleaned = cleaned.replace(/[^-\d.]/g, "");
+  // Remove any remaining non-numeric characters except period
+  cleaned = cleaned.replace(/[^\d.]/g, "");
   
   const parsed = parseFloat(cleaned);
-  return isNaN(parsed) ? 0 : parsed;
+  const result = isNaN(parsed) ? 0 : parsed;
+  
+  // Restore the sign
+  return isNegative ? -result : result;
 }
 
 /**
