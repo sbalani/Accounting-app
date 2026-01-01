@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
 import { parseCSVStatement } from "@/lib/utils/transaction-parser";
 import { parseCSVWithConfig, parseXLSXWithConfig, CSVImportConfig } from "@/lib/utils/csv-parser";
+import { getExchangeRateForDate, convertAmount } from "@/lib/utils/currency";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -35,6 +36,15 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  // Get workspace primary currency
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("primary_currency")
+    .eq("id", workspaceId)
+    .single();
+  
+  const primaryCurrency = workspace?.primary_currency || "USD";
 
   // Verify payment method belongs to workspace and get currency
   const { data: paymentMethod, error: paymentMethodError } = await supabase
@@ -108,17 +118,42 @@ export async function POST(request: Request) {
         transactionCurrency = sourcePM?.currency || "USD";
       }
 
+      // Calculate base amount (original amount in transaction currency)
+      const baseAmount = Math.abs(parseFloat(transaction.amount));
+      
+      // Calculate exchange rate and converted amount
+      let exchangeRate = 1;
+      let convertedAmount = baseAmount;
+      
+      if (transactionCurrency !== primaryCurrency) {
+        try {
+          exchangeRate = await getExchangeRateForDate(
+            transactionCurrency,
+            primaryCurrency,
+            transaction.transaction_date
+          );
+          convertedAmount = convertAmount(baseAmount, exchangeRate);
+        } catch (error: any) {
+          // If exchange rate fetch fails, use 1:1 as fallback
+          console.warn(`Failed to fetch exchange rate: ${error.message}, using 1:1`);
+          exchangeRate = 1;
+          convertedAmount = baseAmount;
+        }
+      }
+
       const transactionData: any = {
         workspace_id: workspaceId,
         payment_method_id: sourcePaymentMethodId,
-        amount: isTransfer ? -transactionAmount : parseFloat(transaction.amount), // Negative for transfers from this account
+        amount: isTransfer ? -convertedAmount : (transaction.amount >= 0 ? convertedAmount : -convertedAmount), // Converted amount in primary currency
+        base_amount: baseAmount, // Original amount in transaction currency
+        currency: transactionCurrency,
+        exchange_rate: exchangeRate,
         description: transaction.description?.trim() || null,
         merchant: transaction.merchant?.trim() || null,
         category: transaction.category?.trim() || null,
         transaction_date: transaction.transaction_date,
         source: transaction.source || "csv",
         transaction_type: transactionType,
-        currency: transactionCurrency,
         created_by: user.id,
       };
 

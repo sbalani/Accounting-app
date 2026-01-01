@@ -38,18 +38,23 @@ export async function GET(request: Request) {
   const { data: transactions, error } = await query;
 
   if (error) {
+    console.error("Error fetching transactions:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   // Get workspace primary currency
-  const { data: workspace } = await supabase
+  const { data: workspace, error: workspaceError } = await supabase
     .from("workspaces")
     .select("primary_currency")
     .eq("id", workspaceId)
     .single();
 
+  if (workspaceError) {
+    console.error("Error fetching workspace:", workspaceError);
+  }
+
   return NextResponse.json({
-    transactions,
+    transactions: transactions || [],
     primaryCurrency: workspace?.primary_currency || "USD",
   });
 }
