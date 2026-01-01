@@ -19,7 +19,12 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("transactions")
-    .select("*, payment_methods!transactions_payment_method_id_fkey(name, type, currency)")
+    .select(`
+      *,
+      payment_methods!transactions_payment_method_id_fkey(name, type, currency),
+      transaction_categories!transactions_category_id_fkey(id, name, color, is_default),
+      merchants!transactions_merchant_id_fkey(id, name, is_default)
+    `)
     .eq("workspace_id", workspaceId)
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -63,8 +68,17 @@ export async function GET(request: Request) {
       console.error("Error fetching workspace:", workspaceError);
     }
 
+    // Include category and merchant names for backward compatibility
+    const transactionsWithNames = (transactions || []).map((tx: any) => ({
+      ...tx,
+      category: tx.transaction_categories?.name || tx.category,
+      merchant: tx.merchants?.name || tx.merchant,
+      category_id: tx.category_id || null,
+      merchant_id: tx.merchant_id || null,
+    }));
+
     return NextResponse.json({
-      transactions: transactions || [],
+      transactions: transactionsWithNames,
       primaryCurrency: workspace?.primary_currency || "USD",
     });
   } catch (error: any) {
@@ -97,9 +111,11 @@ export async function POST(request: Request) {
     amount,
     description,
     category,
+    category_id,
     transaction_date,
     source,
     merchant,
+    merchant_id,
     currency,
     exchange_rate,
     transaction_type,
@@ -178,6 +194,70 @@ export async function POST(request: Request) {
           { status: 500 }
         );
       }
+    }
+  }
+
+  // Helper function to resolve category_id from category text or use provided category_id
+  let resolvedCategoryId: string | null = null;
+  let resolvedCategoryName: string | null = null;
+  if (category_id !== undefined) {
+    resolvedCategoryId = category_id || null;
+    if (resolvedCategoryId) {
+      const { data: catData } = await supabase
+        .from("transaction_categories")
+        .select("name")
+        .eq("id", resolvedCategoryId)
+        .single();
+      if (catData) {
+        resolvedCategoryName = catData.name;
+      }
+    }
+  } else if (category?.trim()) {
+    // Try to find existing category
+    const { data: catData } = await supabase
+      .from("transaction_categories")
+      .select("id, name")
+      .or(`is_default.eq.true,workspace_id.eq.${workspaceId}`)
+      .ilike("name", category.trim())
+      .maybeSingle();
+    
+    if (catData) {
+      resolvedCategoryId = catData.id;
+      resolvedCategoryName = catData.name;
+    } else {
+      resolvedCategoryName = category.trim();
+    }
+  }
+
+  // Helper function to resolve merchant_id from merchant text or use provided merchant_id
+  let resolvedMerchantId: string | null = null;
+  let resolvedMerchantName: string | null = null;
+  if (merchant_id !== undefined) {
+    resolvedMerchantId = merchant_id || null;
+    if (resolvedMerchantId) {
+      const { data: merchData } = await supabase
+        .from("merchants")
+        .select("name")
+        .eq("id", resolvedMerchantId)
+        .single();
+      if (merchData) {
+        resolvedMerchantName = merchData.name;
+      }
+    }
+  } else if (merchant?.trim()) {
+    // Try to find existing merchant
+    const { data: merchData } = await supabase
+      .from("merchants")
+      .select("id, name")
+      .or(`is_default.eq.true,workspace_id.eq.${workspaceId}`)
+      .ilike("name", merchant.trim())
+      .maybeSingle();
+    
+    if (merchData) {
+      resolvedMerchantId = merchData.id;
+      resolvedMerchantName = merchData.name;
+    } else {
+      resolvedMerchantName = merchant.trim();
     }
   }
 
@@ -284,8 +364,10 @@ export async function POST(request: Request) {
           currency: fromCurrency,
           exchange_rate: fromExchangeRate,
           description: description?.trim() || null,
-          category: category?.trim() || null,
-          merchant: merchant?.trim() || null,
+          category: resolvedCategoryName,
+          category_id: resolvedCategoryId,
+          merchant: resolvedMerchantName,
+          merchant_id: resolvedMerchantId,
           transaction_date,
           source: source || "manual",
           transaction_type: "transfer",
@@ -301,8 +383,10 @@ export async function POST(request: Request) {
           currency: toCurrency,
           exchange_rate: toExchangeRate,
           description: description?.trim() || null,
-          category: category?.trim() || null,
-          merchant: merchant?.trim() || null,
+          category: resolvedCategoryName,
+          category_id: resolvedCategoryId,
+          merchant: resolvedMerchantName,
+          merchant_id: resolvedMerchantId,
           transaction_date,
           source: source || "manual",
           transaction_type: "transfer",
@@ -331,8 +415,10 @@ export async function POST(request: Request) {
       currency: transactionCurrency,
       exchange_rate: exchangeRate,
       description: description?.trim() || null,
-      category: category?.trim() || null,
-      merchant: merchant?.trim() || null,
+      category: resolvedCategoryName,
+      category_id: resolvedCategoryId,
+      merchant: resolvedMerchantName,
+      merchant_id: resolvedMerchantId,
       transaction_date,
       source: source || "manual",
       transaction_type: finalTransactionType,

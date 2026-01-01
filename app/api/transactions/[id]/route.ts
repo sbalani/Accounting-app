@@ -16,13 +16,24 @@ export async function GET(
 
   const { data: transaction, error } = await supabase
     .from("transactions")
-    .select("*, payment_methods!transactions_payment_method_id_fkey(name, type, currency)")
+    .select(`
+      *,
+      payment_methods!transactions_payment_method_id_fkey(name, type, currency),
+      transaction_categories!transactions_category_id_fkey(id, name, color, is_default),
+      merchants!transactions_merchant_id_fkey(id, name, is_default)
+    `)
     .eq("id", params.id)
     .eq("workspace_id", workspaceId)
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Include category and merchant names for backward compatibility
+  if (transaction) {
+    transaction.category = transaction.transaction_categories?.name || transaction.category;
+    transaction.merchant = transaction.merchants?.name || transaction.merchant;
   }
 
   return NextResponse.json({ transaction });
@@ -73,17 +84,87 @@ export async function PATCH(
     amount,
     description,
     category,
+    category_id,
     transaction_date,
     merchant,
+    merchant_id,
     currency,
     exchange_rate,
   } = await request.json();
 
   const updateData: any = {};
   if (description !== undefined) updateData.description = description?.trim() || null;
-  if (category !== undefined) updateData.category = category?.trim() || null;
-  if (merchant !== undefined) updateData.merchant = merchant?.trim() || null;
   if (transaction_date !== undefined) updateData.transaction_date = transaction_date;
+  
+  // Handle category_id (preferred) or category (backward compatibility)
+  if (category_id !== undefined) {
+    updateData.category_id = category_id || null;
+    // Also update category text field for backward compatibility
+    if (category_id) {
+      const { data: categoryData } = await supabase
+        .from("transaction_categories")
+        .select("name")
+        .eq("id", category_id)
+        .single();
+      if (categoryData) {
+        updateData.category = categoryData.name;
+      }
+    } else {
+      updateData.category = null;
+    }
+  } else if (category !== undefined) {
+    // Backward compatibility: if category text is provided, try to find or create category
+    updateData.category = category?.trim() || null;
+    if (category?.trim()) {
+      const { data: categoryData } = await supabase
+        .from("transaction_categories")
+        .select("id, name")
+        .or(`is_default.eq.true,workspace_id.eq.${workspaceId}`)
+        .ilike("name", category.trim())
+        .maybeSingle();
+      
+      if (categoryData) {
+        updateData.category_id = categoryData.id;
+      }
+    } else {
+      updateData.category_id = null;
+    }
+  }
+  
+  // Handle merchant_id (preferred) or merchant (backward compatibility)
+  if (merchant_id !== undefined) {
+    updateData.merchant_id = merchant_id || null;
+    // Also update merchant text field for backward compatibility
+    if (merchant_id) {
+      const { data: merchantData } = await supabase
+        .from("merchants")
+        .select("name")
+        .eq("id", merchant_id)
+        .single();
+      if (merchantData) {
+        updateData.merchant = merchantData.name;
+      }
+    } else {
+      updateData.merchant = null;
+    }
+  } else if (merchant !== undefined) {
+    // Backward compatibility: if merchant text is provided, try to find or create merchant
+    updateData.merchant = merchant?.trim() || null;
+    if (merchant?.trim()) {
+      const { data: merchantData } = await supabase
+        .from("merchants")
+        .select("id, name")
+        .or(`is_default.eq.true,workspace_id.eq.${workspaceId}`)
+        .ilike("name", merchant.trim())
+        .maybeSingle();
+      
+      if (merchantData) {
+        updateData.merchant_id = merchantData.id;
+      }
+    } else {
+      updateData.merchant_id = null;
+    }
+  }
 
   // Handle payment method change
   let paymentMethodCurrency = existingTransaction.payment_methods?.currency;
@@ -174,11 +255,22 @@ export async function PATCH(
     .update(updateData)
     .eq("id", params.id)
     .eq("workspace_id", workspaceId)
-    .select("*, payment_methods!transactions_payment_method_id_fkey(name, type, currency)")
+    .select(`
+      *,
+      payment_methods!transactions_payment_method_id_fkey(name, type, currency),
+      transaction_categories!transactions_category_id_fkey(id, name, color, is_default),
+      merchants!transactions_merchant_id_fkey(id, name, is_default)
+    `)
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Include category and merchant names for backward compatibility
+  if (transaction) {
+    transaction.category = transaction.transaction_categories?.name || transaction.category;
+    transaction.merchant = transaction.merchants?.name || transaction.merchant;
   }
 
   return NextResponse.json({ transaction });

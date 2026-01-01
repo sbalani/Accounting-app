@@ -6,22 +6,22 @@ export async function GET() {
   const supabase = await createClient();
   const workspaceId = await getCurrentWorkspaceId();
 
-  // Get default categories (is_default = true or workspace_id is null)
-  // and workspace-specific categories
+  // Get default merchants (is_default = true or workspace_id is null)
+  // and workspace-specific merchants
   let query = supabase
-    .from("transaction_categories")
+    .from("merchants")
     .select("*")
     .or(`is_default.eq.true,workspace_id.eq.${workspaceId || "null"}`)
     .order("is_default", { ascending: false })
     .order("name", { ascending: true });
 
-  const { data: categories, error } = await query;
+  const { data: merchants, error } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ categories });
+  return NextResponse.json({ merchants });
 }
 
 export async function POST(request: Request) {
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No workspace found" }, { status: 404 });
   }
 
-  const { name, color } = await request.json();
+  const { name } = await request.json();
 
   if (!name || !name.trim()) {
     return NextResponse.json(
@@ -49,27 +49,27 @@ export async function POST(request: Request) {
     );
   }
 
-  // Check if category already exists (case-insensitive)
-  const { data: existingCategory } = await supabase
-    .from("transaction_categories")
-    .select("id, name, color")
+  // Check if merchant already exists (case-insensitive)
+  const { data: existingMerchant } = await supabase
+    .from("merchants")
+    .select("id, name")
     .or(`is_default.eq.true,workspace_id.eq.${workspaceId}`)
     .ilike("name", name.trim())
     .maybeSingle();
 
-  if (existingCategory) {
-    // Return existing category instead of creating duplicate
-    return NextResponse.json({ category: existingCategory });
+  if (existingMerchant) {
+    // Return existing merchant instead of creating duplicate
+    return NextResponse.json({ merchant: existingMerchant });
   }
 
-  // Create new workspace-specific category
-  const { data: category, error } = await supabase
-    .from("transaction_categories")
+  // Create new workspace-specific merchant
+  const { data: merchant, error } = await supabase
+    .from("merchants")
     .insert({
       workspace_id: workspaceId,
       name: name.trim(),
-      color: color || "#95A5A6", // Default gray color if not provided
       is_default: false,
+      created_by: user.id,
     })
     .select()
     .single();
@@ -78,5 +78,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ category });
+  return NextResponse.json({ merchant });
 }
+

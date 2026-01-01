@@ -4,12 +4,16 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils/currency";
 import { getDatePresetRange, getDatePresetLabel, type DatePreset } from "@/lib/utils/date-presets";
+import AutocompleteDropdown from "./AutocompleteDropdown";
 
 interface Transaction {
   id: string;
   amount: number;
   description: string | null;
   category: string | null;
+  category_id: string | null;
+  merchant: string | null;
+  merchant_id: string | null;
   transaction_date: string;
   source: string;
   transaction_type?: "income" | "expense" | "transfer";
@@ -18,6 +22,19 @@ interface Transaction {
     type: string;
     currency?: string;
   };
+}
+
+interface Category {
+  id: string;
+  name: string;
+  color?: string;
+  is_default?: boolean;
+}
+
+interface Merchant {
+  id: string;
+  name: string;
+  is_default?: boolean;
 }
 
 export default function TransactionsList() {
@@ -31,6 +48,9 @@ export default function TransactionsList() {
   const [transactionType, setTransactionType] = useState<string>("");
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [updatingTransaction, setUpdatingTransaction] = useState<string | null>(null);
 
   const fetchPaymentMethods = useCallback(async () => {
     try {
@@ -41,6 +61,30 @@ export default function TransactionsList() {
       }
     } catch (err) {
       console.error("Error fetching payment methods:", err);
+    }
+  }, []);
+
+  const fetchCategories = useCallback(async () => {
+    try {
+      const response = await fetch("/api/categories");
+      if (response.ok) {
+        const data = await response.json();
+        setCategories(data.categories || []);
+      }
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+    }
+  }, []);
+
+  const fetchMerchants = useCallback(async () => {
+    try {
+      const response = await fetch("/api/merchants");
+      if (response.ok) {
+        const data = await response.json();
+        setMerchants(data.merchants || []);
+      }
+    } catch (err) {
+      console.error("Error fetching merchants:", err);
     }
   }, []);
 
@@ -92,7 +136,9 @@ export default function TransactionsList() {
 
   useEffect(() => {
     fetchPaymentMethods();
-  }, [fetchPaymentMethods]);
+    fetchCategories();
+    fetchMerchants();
+  }, [fetchPaymentMethods, fetchCategories, fetchMerchants]);
 
   useEffect(() => {
     fetchTransactions();
@@ -125,6 +171,116 @@ export default function TransactionsList() {
       setTransactions(transactions.filter((t) => t.id !== id));
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const handleCategoryChange = async (transactionId: string, categoryId: string | null) => {
+    setUpdatingTransaction(transactionId);
+    try {
+      const response = await fetch(`/api/transactions/${transactionId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ category_id: categoryId }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update category");
+      }
+
+      const data = await response.json();
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.id === transactionId
+            ? { ...t, category_id: categoryId, category: data.transaction.category || null }
+            : t
+        )
+      );
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUpdatingTransaction(null);
+    }
+  };
+
+  const handleMerchantChange = async (transactionId: string, merchantId: string | null) => {
+    setUpdatingTransaction(transactionId);
+    try {
+      const response = await fetch(`/api/transactions/${transactionId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ merchant_id: merchantId }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update merchant");
+      }
+
+      const data = await response.json();
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.id === transactionId
+            ? { ...t, merchant_id: merchantId, merchant: data.transaction.merchant || null }
+            : t
+        )
+      );
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUpdatingTransaction(null);
+    }
+  };
+
+  const handleCreateCategory = async (name: string): Promise<Category | null> => {
+    try {
+      const response = await fetch("/api/categories", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create category");
+      }
+
+      const data = await response.json();
+      const newCategory = data.category;
+      setCategories((prev) => [...prev, newCategory]);
+      return newCategory;
+    } catch (err) {
+      console.error("Error creating category:", err);
+      return null;
+    }
+  };
+
+  const handleCreateMerchant = async (name: string): Promise<Merchant | null> => {
+    try {
+      const response = await fetch("/api/merchants", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create merchant");
+      }
+
+      const data = await response.json();
+      const newMerchant = data.merchant;
+      setMerchants((prev) => [...prev, newMerchant]);
+      return newMerchant;
+    } catch (err) {
+      console.error("Error creating merchant:", err);
+      return null;
     }
   };
 
@@ -273,6 +429,9 @@ export default function TransactionsList() {
                   Category
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Merchant
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Payment Method
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -292,8 +451,27 @@ export default function TransactionsList() {
                   <td className="px-6 py-4 text-sm text-gray-900">
                     {transaction.description || "-"}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {transaction.category || "-"}
+                  <td className="px-6 py-4 text-sm">
+                    <AutocompleteDropdown
+                      items={categories}
+                      value={transaction.category_id}
+                      onChange={(categoryId) => handleCategoryChange(transaction.id, categoryId)}
+                      onCreateNew={handleCreateCategory}
+                      placeholder="Select category..."
+                      className="min-w-[150px]"
+                      disabled={updatingTransaction === transaction.id}
+                    />
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <AutocompleteDropdown
+                      items={merchants}
+                      value={transaction.merchant_id}
+                      onChange={(merchantId) => handleMerchantChange(transaction.id, merchantId)}
+                      onCreateNew={handleCreateMerchant}
+                      placeholder="Select merchant..."
+                      className="min-w-[150px]"
+                      disabled={updatingTransaction === transaction.id}
+                    />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {transaction.payment_methods?.name || "-"}
