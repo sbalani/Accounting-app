@@ -1,4 +1,5 @@
 // Enhanced CSV parser with header detection and flexible column mapping
+import * as XLSX from "xlsx";
 
 export interface CSVColumnMapping {
   date: number | null; // column index
@@ -356,5 +357,194 @@ export function getCSVPreview(csvContent: string, maxRows: number = 10): string[
   }
 
   return preview;
+}
+
+/**
+ * Converts XLSX file buffer to a 2D array (rows and columns)
+ */
+export function parseXLSXToArray(buffer: ArrayBuffer): string[][] {
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+  
+  // Convert to JSON array format
+  // Use raw: true to get actual values, then we'll format dates ourselves
+  const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
+    header: 1, 
+    defval: "",
+    raw: true 
+  }) as any[][];
+  
+  // Convert all values to strings and handle null/undefined
+  return jsonData.map(row => 
+    row.map(cell => {
+      if (cell === null || cell === undefined) {
+        return "";
+      }
+      // Handle Excel date serial numbers (Excel stores dates as numbers)
+      if (typeof cell === "number") {
+        // Excel date serial number starts from 1900-01-01 (serial number 1)
+        // Dates are typically between 1 and ~50000 (for dates up to year 2100)
+        // But we also need to check if it's actually a date vs a regular number
+        // A heuristic: if it's between 1 and 100000 and looks like a date serial
+        if (cell >= 1 && cell < 1000000) {
+          try {
+            // Try to parse as Excel date
+            const excelEpoch = new Date(1899, 11, 30); // Excel epoch is Dec 30, 1899
+            const date = new Date(excelEpoch.getTime() + cell * 86400000); // Add days in milliseconds
+            
+            // Check if the resulting date is reasonable (between 1900 and 2100)
+            const year = date.getFullYear();
+            if (year >= 1900 && year <= 2100 && !isNaN(date.getTime())) {
+              const month = String(date.getMonth() + 1).padStart(2, "0");
+              const day = String(date.getDate()).padStart(2, "0");
+              return `${year}-${month}-${day}`;
+            }
+          } catch (e) {
+            // If date parsing fails, treat as regular number
+          }
+        }
+        // If it's a number but not a date, convert to string
+        return String(cell);
+      }
+      // If it's already a string (from raw: true, dates might be formatted strings)
+      return String(cell);
+    })
+  );
+}
+
+/**
+ * Detects the header row in an XLSX array by looking for common header keywords
+ */
+export function detectHeaderRowFromArray(data: string[][]): number {
+  const headerKeywords = [
+    "date", "transaction date", "posting date", "posted date",
+    "description", "transaction", "details", "memo", "note",
+    "amount", "debit", "credit", "withdrawal", "deposit",
+    "merchant", "payee", "vendor", "store",
+    "category", "type"
+  ];
+
+  // Check first 10 rows for headers
+  for (let i = 0; i < Math.min(10, data.length); i++) {
+    const row = data[i];
+    if (!row || row.length === 0) continue;
+    
+    // Count how many columns contain header keywords
+    let matches = 0;
+    for (const col of row) {
+      const normalizedCol = String(col).toLowerCase().trim().replace(/[^a-z0-9\s]/gi, "");
+      if (headerKeywords.some(keyword => normalizedCol.includes(keyword))) {
+        matches++;
+      }
+    }
+
+    // If we find 2+ matches, likely a header row
+    if (matches >= 2) {
+      return i;
+    }
+  }
+
+  // Default to first row if no header detected
+  return 0;
+}
+
+/**
+ * Parses XLSX content with configuration
+ */
+export function parseXLSXWithConfig(
+  buffer: ArrayBuffer,
+  config: CSVImportConfig
+): ParsedTransaction[] {
+  const data = parseXLSXToArray(buffer);
+  const transactions: ParsedTransaction[] = [];
+
+  // Start parsing from after the header row
+  for (let i = config.headerRow + 1; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.length === 0) continue;
+
+    // Extract values based on mapping
+    const dateValue = config.columnMapping.date !== null && config.columnMapping.date < row.length
+      ? (String(row[config.columnMapping.date] || "").trim() || null)
+      : null;
+    
+    const descriptionValue = config.columnMapping.description !== null && config.columnMapping.description < row.length
+      ? (String(row[config.columnMapping.description] || "").trim() || null)
+      : null;
+
+    const merchantValue = config.columnMapping.merchant !== null && config.columnMapping.merchant < row.length
+      ? (String(row[config.columnMapping.merchant] || "").trim() || null)
+      : null;
+
+    const categoryValue = config.columnMapping.category !== null && config.columnMapping.category < row.length
+      ? (String(row[config.columnMapping.category] || "").trim() || null)
+      : null;
+
+    // Extract amount based on format
+    let amount = 0;
+    
+    if (config.amountFormat === "separate") {
+      // Separate debit and credit columns
+      const debitStr = config.columnMapping.debit !== null && config.columnMapping.debit < row.length
+        ? (String(row[config.columnMapping.debit] || "0").trim() || "0")
+        : "0";
+      const creditStr = config.columnMapping.credit !== null && config.columnMapping.credit < row.length
+        ? (String(row[config.columnMapping.credit] || "0").trim() || "0")
+        : "0";
+
+      const debit = parseFloat(String(debitStr).replace(/[^-\d.]/g, "")) || 0;
+      const credit = parseFloat(String(creditStr).replace(/[^-\d.]/g, "")) || 0;
+
+      // Debit is negative, credit is positive
+      amount = credit - debit;
+    } else {
+      // Unified amount column
+      const amountStr = config.columnMapping.amount !== null && config.columnMapping.amount < row.length
+        ? (String(row[config.columnMapping.amount] || "0").trim() || "0")
+        : "0";
+
+      amount = parseFloat(String(amountStr).replace(/[^-\d.]/g, "")) || 0;
+
+      if (config.amountFormat === "unified_reverse") {
+        // For credit cards: positive = expense, so we negate it
+        amount = -amount;
+      }
+      // For "unified": positive = income, negative = expense (already correct)
+    }
+
+    // Skip transactions with zero amount or missing date
+    if (amount === 0 || !dateValue) {
+      continue;
+    }
+
+    // Try to parse date - handle various formats
+    const dateParsed = parseDate(dateValue);
+    if (!dateParsed) {
+      throw new Error(
+        `Unable to parse date "${dateValue}" in row ${i + 1}. ` +
+        `Please check the date column mapping. Dates should be in formats like YYYY-MM-DD, MM/DD/YYYY, or YYYY-MM-DD HH:MM:SS.`
+      );
+    }
+    const transactionDate = dateParsed;
+
+    transactions.push({
+      amount,
+      description: descriptionValue || null,
+      merchant: merchantValue || null,
+      category: categoryValue || null,
+      transaction_date: transactionDate,
+    });
+  }
+
+  return transactions;
+}
+
+/**
+ * Gets preview of XLSX (first few rows) for UI display
+ */
+export function getXLSXPreview(buffer: ArrayBuffer, maxRows: number = 10): string[][] {
+  const data = parseXLSXToArray(buffer);
+  return data.slice(0, Math.min(maxRows, data.length));
 }
 

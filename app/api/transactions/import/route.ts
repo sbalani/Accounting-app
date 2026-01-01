@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
 import { parseCSVStatement } from "@/lib/utils/transaction-parser";
-import { parseCSVWithConfig, CSVImportConfig } from "@/lib/utils/csv-parser";
+import { parseCSVWithConfig, parseXLSXWithConfig, CSVImportConfig } from "@/lib/utils/csv-parser";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -190,7 +190,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    if (fileType === "csv") {
+    if (fileType === "csv" || fileType === "xlsx") {
       // Check if we have CSV config in query params
       const configParam = searchParams.get("csv_config");
       
@@ -198,19 +198,40 @@ export async function GET(request: Request) {
         // Use new config-based parsing
         const config: CSVImportConfig = JSON.parse(decodeURIComponent(configParam));
         
-        // Fetch CSV content
-        const response = await fetch(fileUrl);
-        if (!response.ok) {
-          throw new Error("Failed to fetch CSV file");
+        if (fileType === "xlsx") {
+          // Handle XLSX files
+          const response = await fetch(fileUrl);
+          if (!response.ok) {
+            throw new Error("Failed to fetch XLSX file");
+          }
+          const buffer = await response.arrayBuffer();
+
+          // Parse XLSX with config
+          const transactions = parseXLSXWithConfig(buffer, config);
+
+          return NextResponse.json({ transactions });
+        } else {
+          // Handle CSV files
+          const response = await fetch(fileUrl);
+          if (!response.ok) {
+            throw new Error("Failed to fetch CSV file");
+          }
+          const csvContent = await response.text();
+
+          // Parse CSV with config
+          const transactions = parseCSVWithConfig(csvContent, config);
+
+          return NextResponse.json({ transactions });
         }
-        const csvContent = await response.text();
-
-        // Parse CSV with config
-        const transactions = parseCSVWithConfig(csvContent, config);
-
-        return NextResponse.json({ transactions });
       } else {
-        // Fallback to old parsing method for backward compatibility
+        // Fallback to old parsing method for backward compatibility (CSV only)
+        if (fileType === "xlsx") {
+          return NextResponse.json(
+            { error: "XLSX files require column mapping configuration" },
+            { status: 400 }
+          );
+        }
+        
         // Fetch CSV content
         const response = await fetch(fileUrl);
         if (!response.ok) {

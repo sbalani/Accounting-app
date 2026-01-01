@@ -26,7 +26,7 @@ export default function StatementImportPage() {
   const [paymentMethodId, setPaymentMethodId] = useState("");
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [fileType, setFileType] = useState<"csv" | "pdf">("csv");
+  const [fileType, setFileType] = useState<"csv" | "pdf" | "xlsx">("csv");
 
   // CSV Analysis state
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -299,11 +299,18 @@ export default function StatementImportPage() {
 
     // Determine file type from extension
     const extension = fileData.fileName.split(".").pop()?.toLowerCase();
-    const type = extension === "pdf" ? "pdf" : "csv";
+    let type: "csv" | "pdf" | "xlsx" = "csv";
+    if (extension === "pdf") {
+      type = "pdf";
+    } else if (extension === "xlsx" || extension === "xls") {
+      type = "xlsx";
+    } else {
+      type = "csv";
+    }
     setFileType(type);
 
-    if (type === "csv") {
-      // Analyze CSV
+    if (type === "csv" || type === "xlsx") {
+      // Analyze CSV or XLSX
       setProcessing(true);
       try {
         const response = await fetch("/api/transactions/csv-analyze", {
@@ -314,6 +321,7 @@ export default function StatementImportPage() {
           body: JSON.stringify({ 
             file_url: fileData.signedUrl || fileData.publicUrl,
             file_path: fileData.filePath || fileData.filePathFull,
+            file_type: type,
           }),
         });
 
@@ -406,7 +414,7 @@ export default function StatementImportPage() {
       const response = await fetch(
         `/api/transactions/import?file_url=${encodeURIComponent(
           fileUrl
-        )}&file_type=csv&csv_config=${encodeURIComponent(JSON.stringify(config))}`
+        )}&file_type=${fileType}&csv_config=${encodeURIComponent(JSON.stringify(config))}`
       );
 
       if (!response.ok) {
@@ -435,7 +443,7 @@ export default function StatementImportPage() {
 
     try {
       // Save mapping if requested
-      if (saveMapping && fileType === "csv") {
+      if (saveMapping && (fileType === "csv" || fileType === "xlsx")) {
         const config: CSVImportConfig = {
           headerRow,
           columnMapping,
@@ -502,7 +510,7 @@ export default function StatementImportPage() {
           </Link>
           <h1 className="text-3xl font-bold text-gray-900">Import Bank Statement</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Upload a CSV or PDF bank statement to import transactions
+            Upload a CSV, XLSX, or PDF bank statement to import transactions
           </p>
         </div>
 
@@ -521,7 +529,7 @@ export default function StatementImportPage() {
               </div>
               <span className="ml-2 text-sm font-medium">Upload</span>
             </div>
-            {fileType === "csv" && (
+            {(fileType === "csv" || fileType === "xlsx") && (
               <>
                 <div className="w-8 h-px bg-gray-300"></div>
                 <div className={`flex items-center ${step === "configure" ? "text-blue-600" : step === "review" || step === "importing" ? "text-green-600" : "text-gray-400"}`}>
@@ -535,7 +543,7 @@ export default function StatementImportPage() {
             <div className="w-8 h-px bg-gray-300"></div>
             <div className={`flex items-center ${step === "review" ? "text-blue-600" : step === "importing" ? "text-green-600" : "text-gray-400"}`}>
               <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step === "review" ? "bg-blue-600 text-white" : step === "importing" ? "bg-green-600 text-white" : "bg-gray-300 text-gray-600"}`}>
-                {fileType === "csv" ? "3" : "2"}
+                {(fileType === "csv" || fileType === "xlsx") ? "3" : "2"}
               </div>
               <span className="ml-2 text-sm font-medium">Review</span>
             </div>
@@ -548,7 +556,7 @@ export default function StatementImportPage() {
                 type="statement"
                 onUploadComplete={handleUploadComplete}
                 onUploadError={(err) => setError(err)}
-                accept=".csv,.pdf"
+                accept=".csv,.pdf,.xlsx,.xls"
               />
               {processing && (
                 <div className="mt-4 text-center py-8">
@@ -558,8 +566,8 @@ export default function StatementImportPage() {
             </div>
           )}
 
-          {/* Configure Step (CSV only) */}
-          {step === "configure" && fileType === "csv" && (
+          {/* Configure Step (CSV/XLSX only) */}
+          {step === "configure" && (fileType === "csv" || fileType === "xlsx") && (
             <div className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -580,9 +588,9 @@ export default function StatementImportPage() {
                 </select>
               </div>
 
-              {/* CSV Preview */}
+              {/* CSV/XLSX Preview */}
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-3">CSV Preview</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-3">{fileType === "xlsx" ? "Excel" : "CSV"} Preview</h3>
                 <div className="border rounded-lg overflow-auto max-h-64">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0">
@@ -1210,7 +1218,7 @@ export default function StatementImportPage() {
                 </div>
               </div>
 
-              {fileType === "csv" && (
+              {(fileType === "csv" || fileType === "xlsx") && (
                 <div className="flex items-center">
                   <input
                     type="checkbox"
@@ -1229,7 +1237,7 @@ export default function StatementImportPage() {
               <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => {
-                    if (fileType === "csv") {
+                    if (fileType === "csv" || fileType === "xlsx") {
                       setStep("configure");
                     } else {
                       setStep("upload");
@@ -1240,7 +1248,7 @@ export default function StatementImportPage() {
                   disabled={importing}
                   className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                 >
-                  {fileType === "csv" ? "Back to Configure" : "Cancel"}
+                  {(fileType === "csv" || fileType === "xlsx") ? "Back to Configure" : "Cancel"}
                 </button>
                 <button
                   onClick={handleImport}
