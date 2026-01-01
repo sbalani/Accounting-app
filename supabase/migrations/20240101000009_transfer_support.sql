@@ -115,3 +115,4 @@ comment on column public.transactions.transaction_type is 'Type of transaction: 
 comment on column public.transactions.transfer_from_id is 'For transfer transactions: the account money is transferred from';
 comment on column public.transactions.transfer_to_id is 'For transfer transactions: the account money is transferred to';
 
+

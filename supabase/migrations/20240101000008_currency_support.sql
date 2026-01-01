@@ -54,3 +54,4 @@ comment on column public.transactions.currency is 'Currency of the transaction.'
 comment on column public.transactions.exchange_rate is 'Exchange rate from transaction currency to workspace primary currency at transaction date. Can be manually overridden.';
 comment on column public.transactions.base_amount is 'Original transaction amount in the transaction currency before conversion.';
 
+
