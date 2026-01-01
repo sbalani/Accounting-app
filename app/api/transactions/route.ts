@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("transactions")
-    .select("*, payment_methods(name, type)")
+    .select("*, payment_methods(name, type, currency)")
     .eq("workspace_id", workspaceId)
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -35,28 +35,40 @@ export async function GET(request: Request) {
     query = query.lte("transaction_date", endDate);
   }
 
-  const { data: transactions, error } = await query;
+  try {
+    const { data: transactions, error } = await query;
 
-  if (error) {
-    console.error("Error fetching transactions:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error("Error fetching transactions:", error);
+      console.error("Error details:", JSON.stringify(error, null, 2));
+      return NextResponse.json({ 
+        error: error.message || "Failed to fetch transactions",
+        details: error 
+      }, { status: 500 });
+    }
+
+    // Get workspace primary currency
+    const { data: workspace, error: workspaceError } = await supabase
+      .from("workspaces")
+      .select("primary_currency")
+      .eq("id", workspaceId)
+      .maybeSingle();
+
+    if (workspaceError) {
+      console.error("Error fetching workspace:", workspaceError);
+    }
+
+    return NextResponse.json({
+      transactions: transactions || [],
+      primaryCurrency: workspace?.primary_currency || "USD",
+    });
+  } catch (error: any) {
+    console.error("Unexpected error in GET /api/transactions:", error);
+    return NextResponse.json({ 
+      error: error.message || "An unexpected error occurred",
+      details: error.stack 
+    }, { status: 500 });
   }
-
-  // Get workspace primary currency
-  const { data: workspace, error: workspaceError } = await supabase
-    .from("workspaces")
-    .select("primary_currency")
-    .eq("id", workspaceId)
-    .single();
-
-  if (workspaceError) {
-    console.error("Error fetching workspace:", workspaceError);
-  }
-
-  return NextResponse.json({
-    transactions: transactions || [],
-    primaryCurrency: workspace?.primary_currency || "USD",
-  });
 }
 
 export async function POST(request: Request) {
