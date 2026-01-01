@@ -19,12 +19,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("transactions")
-    .select(`
-      *,
-      payment_methods:payment_method_id(name, type, currency),
-      transaction_categories:category_id(id, name, color, is_default),
-      merchants:merchant_id(id, name, is_default)
-    `)
+    .select("*")
     .eq("workspace_id", workspaceId)
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -68,17 +63,59 @@ export async function GET(request: Request) {
       console.error("Error fetching workspace:", workspaceError);
     }
 
-    // Include category and merchant names for backward compatibility
-    const transactionsWithNames = (transactions || []).map((tx: any) => ({
-      ...tx,
-      category: tx.transaction_categories?.name || tx.category,
-      merchant: tx.merchants?.name || tx.merchant,
-      category_id: tx.category_id || null,
-      merchant_id: tx.merchant_id || null,
-    }));
+    // Fetch related data for all transactions
+    const transactionsWithRelations = await Promise.all(
+      (transactions || []).map(async (tx: any) => {
+        // Fetch payment method
+        if (tx.payment_method_id) {
+          const { data: paymentMethod } = await supabase
+            .from("payment_methods")
+            .select("name, type, currency")
+            .eq("id", tx.payment_method_id)
+            .maybeSingle();
+          if (paymentMethod) {
+            tx.payment_methods = paymentMethod;
+          }
+        }
+
+        // Fetch category
+        if (tx.category_id) {
+          const { data: category } = await supabase
+            .from("transaction_categories")
+            .select("id, name, color, is_default")
+            .eq("id", tx.category_id)
+            .maybeSingle();
+          if (category) {
+            tx.transaction_categories = category;
+            tx.category = category.name;
+          }
+        }
+
+        // Fetch merchant
+        if (tx.merchant_id) {
+          const { data: merchant } = await supabase
+            .from("merchants")
+            .select("id, name, is_default")
+            .eq("id", tx.merchant_id)
+            .maybeSingle();
+          if (merchant) {
+            tx.merchants = merchant;
+            tx.merchant = merchant.name;
+          }
+        }
+
+        return {
+          ...tx,
+          category: tx.category || null,
+          merchant: tx.merchant || null,
+          category_id: tx.category_id || null,
+          merchant_id: tx.merchant_id || null,
+        };
+      })
+    );
 
     return NextResponse.json({
-      transactions: transactionsWithNames,
+      transactions: transactionsWithRelations,
       primaryCurrency: workspace?.primary_currency || "USD",
     });
   } catch (error: any) {
@@ -395,7 +432,7 @@ export async function POST(request: Request) {
           created_by: user.id,
         },
       ])
-      .select("*, payment_methods:payment_method_id(name, type, currency)");
+      .select("*");
 
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
@@ -424,11 +461,25 @@ export async function POST(request: Request) {
       transaction_type: finalTransactionType,
       created_by: user.id,
     })
-    .select("*, payment_methods(name, type, currency)")
+    .select("*")
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // Fetch related data separately
+  if (transaction) {
+    if (transaction.payment_method_id) {
+      const { data: paymentMethod } = await supabase
+        .from("payment_methods")
+        .select("name, type, currency")
+        .eq("id", transaction.payment_method_id)
+        .maybeSingle();
+      if (paymentMethod) {
+        transaction.payment_methods = paymentMethod;
+      }
+    }
   }
 
   return NextResponse.json({ transaction });
