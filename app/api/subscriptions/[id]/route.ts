@@ -86,10 +86,11 @@ export async function PATCH(
     return NextResponse.json({ error: "No workspace found" }, { status: 404 });
   }
 
-  const { name, amount, due_day, payment_method_id, merchant_id, category_id, is_active } = await request.json();
+  const { name, description, amount, due_day, payment_method_id, merchant_id, category_id, is_active } = await request.json();
 
   const updateData: any = {};
   if (name !== undefined) updateData.name = name.trim();
+  if (description !== undefined) updateData.description = description?.trim() || null;
   if (amount !== undefined) updateData.amount = parseFloat(amount);
   if (due_day !== undefined) {
     if (due_day < 1 || due_day > 31) {

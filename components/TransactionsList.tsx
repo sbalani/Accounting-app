@@ -319,8 +319,6 @@ export default function TransactionsList() {
         delete updated[transactionId];
         return updated;
       });
-
-      alert("Transaction marked as subscription successfully!");
     } catch (err: any) {
       alert(err.message || "Failed to mark as subscription");
     }

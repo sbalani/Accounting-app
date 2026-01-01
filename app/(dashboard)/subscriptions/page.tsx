@@ -7,6 +7,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 interface Subscription {
   id: string;
   name: string;
+  description: string | null;
   amount: number;
   due_day: number;
   payment_method_id: string;
@@ -57,6 +58,10 @@ export default function SubscriptionsPage() {
     fetchSubscriptions();
   }, [fetchSubscriptions]);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState<string>("");
+  const [editDescription, setEditDescription] = useState<string>("");
+
   const handleToggleActive = async (id: string, currentStatus: boolean) => {
     try {
       const response = await fetch(`/api/subscriptions/${id}`, {
@@ -77,6 +82,50 @@ export default function SubscriptionsPage() {
           sub.id === id ? { ...sub, is_active: !currentStatus } : sub
         )
       );
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleStartEdit = (subscription: Subscription) => {
+    setEditingId(subscription.id);
+    setEditName(subscription.name);
+    setEditDescription(subscription.description || "");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditName("");
+    setEditDescription("");
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    try {
+      const response = await fetch(`/api/subscriptions/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: editName.trim(),
+          description: editDescription.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update subscription");
+      }
+
+      const data = await response.json();
+      setSubscriptions((prev) =>
+        prev.map((sub) =>
+          sub.id === id
+            ? { ...sub, name: data.subscription.name, description: data.subscription.description }
+            : sub
+        )
+      );
+      handleCancelEdit();
     } catch (err: any) {
       alert(err.message);
     }
@@ -240,8 +289,52 @@ export default function SubscriptionsPage() {
 
                   return (
                     <tr key={subscription.id} className={isUpcoming ? "bg-yellow-50" : ""}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{subscription.name}</div>
+                      <td className="px-6 py-4">
+                        {editingId === subscription.id ? (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              className="block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                              placeholder="Subscription name"
+                            />
+                            <textarea
+                              value={editDescription}
+                              onChange={(e) => setEditDescription(e.target.value)}
+                              className="block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                              placeholder="Description (optional)"
+                              rows={2}
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleSaveEdit(subscription.id)}
+                                className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={handleCancelEdit}
+                                className="px-2 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{subscription.name}</div>
+                            {subscription.description && (
+                              <div className="text-xs text-gray-500 mt-1">{subscription.description}</div>
+                            )}
+                            <button
+                              onClick={() => handleStartEdit(subscription)}
+                              className="mt-1 text-xs text-blue-600 hover:text-blue-500"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
                         {formatCurrency(Math.abs(subscription.amount), primaryCurrency)}
