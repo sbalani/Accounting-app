@@ -307,38 +307,73 @@ function parseDate(dateStr: string): string | null {
   }
 
   // Try different date formats
-  const formats = [
-    /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/, // YYYY-MM-DD or YYYY/MM/DD
-    /^(\d{2})[-\/](\d{2})[-\/](\d{4})$/, // MM/DD/YYYY or MM-DD-YYYY
-    /^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/, // M/D/YY or M/D/YYYY
-  ];
+  // First, try YYYY-MM-DD or YYYY/MM/DD format
+  const ymdFormat = /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/;
+  const ymdMatch = cleaned.match(ymdFormat);
+  if (ymdMatch) {
+    const [, year, month, day] = ymdMatch;
+    const monthNum = parseInt(month, 10);
+    const dayNum = parseInt(day, 10);
+    const yearNum = parseInt(year, 10);
+    
+    if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31 && yearNum >= 1900) {
+      return `${yearNum}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+    }
+  }
 
-  for (let i = 0; i < formats.length; i++) {
-    const format = formats[i];
-    const match = cleaned.match(format);
-    if (match) {
-      let year: string, month: string, day: string;
-
-      if (i === 0) {
-        // YYYY-MM-DD or YYYY/MM/DD
-        [, year, month, day] = match;
+  // Try DD/MM/YYYY or MM/DD/YYYY format
+  // We need to detect which one it is by checking if first number > 12
+  const dmyFormat = /^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/;
+  const dmyMatch = cleaned.match(dmyFormat);
+  if (dmyMatch) {
+    const [, first, second, year] = dmyMatch;
+    const firstNum = parseInt(first, 10);
+    const secondNum = parseInt(second, 10);
+    let yearStr = year;
+    
+    if (year.length === 2) {
+      // Convert YY to YYYY (assuming 20XX for years 00-99)
+      yearStr = "20" + year;
+    }
+    
+    const yearNum = parseInt(yearStr, 10);
+    let month: string, day: string;
+    
+    // If first number > 12, it must be DD/MM/YYYY
+    if (firstNum > 12) {
+      day = first;
+      month = second;
+    } 
+    // If second number > 12, it must be MM/DD/YYYY
+    else if (secondNum > 12) {
+      month = first;
+      day = second;
+    }
+    // If both <= 12, try both formats and see which one validates
+    else {
+      // Try DD/MM/YYYY first (more common internationally)
+      const dayNum = firstNum;
+      const monthNum = secondNum;
+      if (dayNum >= 1 && dayNum <= 31 && monthNum >= 1 && monthNum <= 12 && yearNum >= 1900) {
+        day = first;
+        month = second;
+      }
+      // Try MM/DD/YYYY
+      else if (firstNum >= 1 && firstNum <= 12 && secondNum >= 1 && secondNum <= 31 && yearNum >= 1900) {
+        month = first;
+        day = second;
       } else {
-        // MM/DD/YYYY or MM-DD-YYYY or M/D/YY
-        [, month, day, year] = match;
-        if (year.length === 2) {
-          // Convert YY to YYYY (assuming 20XX for years 00-99)
-          year = "20" + year;
-        }
+        // Default to DD/MM/YYYY if validation fails for both
+        day = first;
+        month = second;
       }
-
-      // Validate and pad
-      const monthNum = parseInt(month, 10);
-      const dayNum = parseInt(day, 10);
-      const yearNum = parseInt(year, 10);
-
-      if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31 && yearNum >= 1900) {
-        return `${yearNum}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-      }
+    }
+    
+    const monthNum = parseInt(month, 10);
+    const dayNum = parseInt(day, 10);
+    
+    if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31 && yearNum >= 1900) {
+      return `${yearNum}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
     }
   }
 
