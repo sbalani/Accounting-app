@@ -80,10 +80,10 @@ export async function PATCH(
     return NextResponse.json({ error: "No workspace found" }, { status: 404 });
   }
 
-  // Get existing transaction first
+  // Get existing transaction first (without payment_methods to avoid foreign key ambiguity)
   const { data: existingTransaction, error: fetchError } = await supabase
     .from("transactions")
-    .select("*, payment_methods(id, currency)")
+    .select("*")
     .eq("id", params.id)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -209,7 +209,17 @@ export async function PATCH(
   }
 
   // Handle payment method change
-  let paymentMethodCurrency = existingTransaction.payment_methods?.currency;
+  // Fetch payment method currency if we need it (for currency calculations)
+  let paymentMethodCurrency: string | undefined;
+  if (existingTransaction.payment_method_id) {
+    const { data: existingPaymentMethod } = await supabase
+      .from("payment_methods")
+      .select("currency")
+      .eq("id", existingTransaction.payment_method_id)
+      .maybeSingle();
+    paymentMethodCurrency = existingPaymentMethod?.currency;
+  }
+
   if (payment_method_id !== undefined) {
     const { data: paymentMethod, error: paymentMethodError } = await supabase
       .from("payment_methods")
