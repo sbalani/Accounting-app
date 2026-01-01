@@ -305,16 +305,16 @@ export async function PATCH(
   }
 
   // Fetch the updated transaction (without payment_methods to avoid foreign key ambiguity)
-  const { data: transaction, error: fetchError } = await supabase
+  const { data: transaction, error: fetchUpdatedError } = await supabase
     .from("transactions")
     .select("*")
     .eq("id", params.id)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
-  if (fetchError) {
-    console.error("Error fetching updated transaction:", fetchError);
-    return NextResponse.json({ error: fetchError.message || "Failed to fetch updated transaction" }, { status: 500 });
+  if (fetchUpdatedError) {
+    console.error("Error fetching updated transaction:", fetchUpdatedError);
+    return NextResponse.json({ error: fetchUpdatedError.message || "Failed to fetch updated transaction" }, { status: 500 });
   }
 
   if (!transaction) {
