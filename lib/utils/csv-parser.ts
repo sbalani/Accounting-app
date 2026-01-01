@@ -312,12 +312,21 @@ export function parseCSVWithConfig(
     }
     const transactionDate = dateParsed;
 
+    // Set transaction type based on amount (for unified format)
+    let transactionType: "expense" | "income" | "transfer" = "expense";
+    if (amount > 0) {
+      transactionType = "income";
+    } else if (amount < 0) {
+      transactionType = "expense";
+    }
+
     transactions.push({
       amount,
       description: descriptionValue || null,
       merchant: merchantValue || null,
       category: categoryValue || null,
       transaction_date: transactionDate,
+      transaction_type: transactionType,
     });
   }
 
@@ -597,12 +606,21 @@ export function parseXLSXWithConfig(
     }
     const transactionDate = dateParsed;
 
+    // Set transaction type based on amount (for unified format)
+    let transactionType: "expense" | "income" | "transfer" = "expense";
+    if (amount > 0) {
+      transactionType = "income";
+    } else if (amount < 0) {
+      transactionType = "expense";
+    }
+
     transactions.push({
       amount,
       description: descriptionValue || null,
       merchant: merchantValue || null,
       category: categoryValue || null,
       transaction_date: transactionDate,
+      transaction_type: transactionType,
     });
   }
 

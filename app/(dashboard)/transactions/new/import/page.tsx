@@ -124,8 +124,20 @@ export default function StatementImportPage() {
       if (response.ok) {
         const data = await response.json();
         setPaymentMethods(data.paymentMethods || []);
-        if (data.paymentMethods?.length > 0 && !paymentMethodId) {
-          setPaymentMethodId(data.paymentMethods[0].id);
+        if (data.paymentMethods?.length > 0) {
+          if (!paymentMethodId) {
+            setPaymentMethodId(data.paymentMethods[0].id);
+            // Set currency from first payment method
+            if (data.paymentMethods[0].currency) {
+              setPrimaryCurrency(data.paymentMethods[0].currency);
+            }
+          } else {
+            // Update currency for currently selected payment method
+            const selectedPM = data.paymentMethods.find((pm: any) => pm.id === paymentMethodId);
+            if (selectedPM?.currency) {
+              setPrimaryCurrency(selectedPM.currency);
+            }
+          }
         }
       }
     } catch (err) {
@@ -1045,7 +1057,14 @@ export default function StatementImportPage() {
                 <div className="flex items-center space-x-2">
                   <select
                     value={paymentMethodId}
-                    onChange={(e) => setPaymentMethodId(e.target.value)}
+                    onChange={(e) => {
+                      setPaymentMethodId(e.target.value);
+                      // Update currency when payment method changes
+                      const selectedPM = paymentMethods.find(pm => pm.id === e.target.value);
+                      if (selectedPM?.currency) {
+                        setPrimaryCurrency(selectedPM.currency);
+                      }
+                    }}
                     className="flex-1 px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                     required
                     disabled={importing}
@@ -1452,7 +1471,7 @@ function TransactionRow({
       </td>
       <td
         className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${
-          isTransfer ? "text-blue-600" : transaction.amount >= 0 ? "text-green-600" : "text-red-600"
+          isTransfer ? "text-blue-600" : (transaction.transaction_type === "income" || (transaction.transaction_type === undefined && transaction.amount > 0)) ? "text-green-600" : "text-red-600"
         }`}
       >
         {formatAmount(Math.abs(transaction.amount))}
@@ -1462,7 +1481,7 @@ function TransactionRow({
           <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
             Transfer
           </span>
-        ) : transaction.amount >= 0 ? (
+        ) : transaction.transaction_type === "income" || (transaction.transaction_type === undefined && transaction.amount > 0) ? (
           <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">
             Income
           </span>
