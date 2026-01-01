@@ -15,10 +15,11 @@ export async function GET(request: Request) {
   const paymentMethodId = searchParams.get("payment_method_id");
   const startDate = searchParams.get("start_date");
   const endDate = searchParams.get("end_date");
+  const transactionType = searchParams.get("transaction_type"); // 'income', 'expense', or 'transfer'
 
   let query = supabase
     .from("transactions")
-    .select("*, payment_methods(name, type, currency)")
+    .select("*, payment_methods!transactions_payment_method_id_fkey(name, type, currency)")
     .eq("workspace_id", workspaceId)
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -33,6 +34,10 @@ export async function GET(request: Request) {
 
   if (endDate) {
     query = query.lte("transaction_date", endDate);
+  }
+
+  if (transactionType) {
+    query = query.eq("transaction_type", transactionType);
   }
 
   try {
@@ -306,7 +311,7 @@ export async function POST(request: Request) {
           created_by: user.id,
         },
       ])
-      .select("*, payment_methods(name, type, currency)");
+      .select("*, payment_methods!transactions_payment_method_id_fkey(name, type, currency)");
 
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });

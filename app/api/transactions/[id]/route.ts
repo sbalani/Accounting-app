@@ -16,7 +16,7 @@ export async function GET(
 
   const { data: transaction, error } = await supabase
     .from("transactions")
-    .select("*, payment_methods(name, type)")
+    .select("*, payment_methods!transactions_payment_method_id_fkey(name, type, currency)")
     .eq("id", params.id)
     .eq("workspace_id", workspaceId)
     .single();
@@ -174,7 +174,7 @@ export async function PATCH(
     .update(updateData)
     .eq("id", params.id)
     .eq("workspace_id", workspaceId)
-    .select("*, payment_methods(name, type, currency)")
+    .select("*, payment_methods!transactions_payment_method_id_fkey(name, type, currency)")
     .single();
 
   if (error) {
