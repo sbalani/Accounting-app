@@ -56,9 +56,17 @@ export async function PATCH(
     .select("*, payment_methods(id, currency)")
     .eq("id", params.id)
     .eq("workspace_id", workspaceId)
-    .single();
+    .maybeSingle();
 
-  if (fetchError || !existingTransaction) {
+  if (fetchError) {
+    console.error("Error fetching transaction:", fetchError);
+    return NextResponse.json(
+      { error: fetchError.message || "Failed to fetch transaction" },
+      { status: 500 }
+    );
+  }
+
+  if (!existingTransaction) {
     return NextResponse.json(
       { error: "Transaction not found" },
       { status: 404 }
@@ -101,12 +109,14 @@ export async function PATCH(
     updateData.category_id = category_id || null;
     // Also update category text field for backward compatibility
     if (category_id) {
-      const { data: categoryData } = await supabase
+      const { data: categoryData, error: categoryError } = await supabase
         .from("transaction_categories")
         .select("name")
         .eq("id", category_id)
-        .single();
-      if (categoryData) {
+        .maybeSingle();
+      if (categoryError) {
+        console.error("Error fetching category:", categoryError);
+      } else if (categoryData) {
         updateData.category = categoryData.name;
       }
     } else {
@@ -136,12 +146,14 @@ export async function PATCH(
     updateData.merchant_id = merchant_id || null;
     // Also update merchant text field for backward compatibility
     if (merchant_id) {
-      const { data: merchantData } = await supabase
+      const { data: merchantData, error: merchantError } = await supabase
         .from("merchants")
         .select("name")
         .eq("id", merchant_id)
-        .single();
-      if (merchantData) {
+        .maybeSingle();
+      if (merchantError) {
+        console.error("Error fetching merchant:", merchantError);
+      } else if (merchantData) {
         updateData.merchant = merchantData.name;
       }
     } else {
@@ -250,7 +262,7 @@ export async function PATCH(
     updateData.amount = convertedAmount; // Store converted amount in primary currency
   }
 
-  const { data: transaction, error } = await supabase
+  const { data: transaction, error: updateError } = await supabase
     .from("transactions")
     .update(updateData)
     .eq("id", params.id)
@@ -261,17 +273,20 @@ export async function PATCH(
       transaction_categories!transactions_category_id_fkey(id, name, color, is_default),
       merchants!transactions_merchant_id_fkey(id, name, is_default)
     `)
-    .single();
+    .maybeSingle();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (updateError) {
+    console.error("Error updating transaction:", updateError);
+    return NextResponse.json({ error: updateError.message || "Failed to update transaction" }, { status: 500 });
+  }
+
+  if (!transaction) {
+    return NextResponse.json({ error: "Transaction not found or could not be updated" }, { status: 404 });
   }
 
   // Include category and merchant names for backward compatibility
-  if (transaction) {
-    transaction.category = transaction.transaction_categories?.name || transaction.category;
-    transaction.merchant = transaction.merchants?.name || transaction.merchant;
-  }
+  transaction.category = transaction.transaction_categories?.name || transaction.category;
+  transaction.merchant = transaction.merchants?.name || transaction.merchant;
 
   return NextResponse.json({ transaction });
 }
