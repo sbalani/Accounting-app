@@ -8,6 +8,7 @@ import FileUpload from "@/components/FileUpload";
 import {
   CSVColumnMapping,
   AmountFormat,
+  NumberFormat,
   CSVImportConfig,
   ParsedTransaction,
   suggestColumnMapping,
@@ -44,6 +45,7 @@ export default function StatementImportPage() {
     category: null,
   });
   const [amountFormat, setAmountFormat] = useState<AmountFormat>("unified");
+  const [numberFormat, setNumberFormat] = useState<NumberFormat>("us");
   const [saveMapping, setSaveMapping] = useState(false);
 
   // Parsed transactions
@@ -354,6 +356,7 @@ export default function StatementImportPage() {
               const savedConfig = pmData.paymentMethod.csv_import_config;
               setColumnMapping(savedConfig.columnMapping || columnMapping);
               setAmountFormat(savedConfig.amountFormat || "unified");
+              setNumberFormat(savedConfig.numberFormat || "us");
               // Use saved header row if available, otherwise use detected
               const savedHeaderRow = savedConfig.headerRow !== undefined ? savedConfig.headerRow : detectedRow;
               setHeaderRow(savedHeaderRow);
@@ -420,6 +423,7 @@ export default function StatementImportPage() {
         headerRow,
         columnMapping,
         amountFormat,
+        numberFormat,
       };
 
       const fileUrl = uploadedFile.signedUrl || uploadedFile.publicUrl;
@@ -463,6 +467,7 @@ export default function StatementImportPage() {
           headerRow,
           columnMapping,
           amountFormat,
+          numberFormat,
         };
 
         await fetch(`/api/payment-methods/${paymentMethodId}`, {
@@ -590,7 +595,14 @@ export default function StatementImportPage() {
                 </label>
                 <select
                   value={paymentMethodId}
-                  onChange={(e) => setPaymentMethodId(e.target.value)}
+                  onChange={(e) => {
+                    setPaymentMethodId(e.target.value);
+                    // Update currency when payment method changes
+                    const selectedPM = paymentMethods.find(pm => pm.id === e.target.value);
+                    if (selectedPM?.currency) {
+                      setPrimaryCurrency(selectedPM.currency);
+                    }
+                  }}
                   className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   required
                 >
@@ -953,6 +965,37 @@ export default function StatementImportPage() {
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Number Format */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-3">Number Format *</h3>
+                <div className="space-y-2">
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      value="us"
+                      checked={numberFormat === "us"}
+                      onChange={(e) => setNumberFormat(e.target.value as NumberFormat)}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">
+                      US Format (period as decimal, comma as thousands) - e.g., 1,234.56
+                    </span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      value="european"
+                      checked={numberFormat === "european"}
+                      onChange={(e) => setNumberFormat(e.target.value as NumberFormat)}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">
+                      European Format (comma as decimal, period as thousands) - e.g., 1.234,56 or 13,99
+                    </span>
+                  </label>
                 </div>
               </div>
 

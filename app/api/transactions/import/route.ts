@@ -36,10 +36,10 @@ export async function POST(request: Request) {
     );
   }
 
-  // Verify payment method belongs to workspace
+  // Verify payment method belongs to workspace and get currency
   const { data: paymentMethod, error: paymentMethodError } = await supabase
     .from("payment_methods")
-    .select("id")
+    .select("id, currency")
     .eq("id", payment_method_id)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -94,6 +94,20 @@ export async function POST(request: Request) {
         transactionType = "income";
       }
 
+      // Get currency from payment method
+      let transactionCurrency = "USD";
+      if (sourcePaymentMethodId === payment_method_id) {
+        transactionCurrency = paymentMethod?.currency || "USD";
+      } else {
+        const { data: sourcePM } = await supabase
+          .from("payment_methods")
+          .select("currency")
+          .eq("id", sourcePaymentMethodId)
+          .eq("workspace_id", workspaceId)
+          .maybeSingle();
+        transactionCurrency = sourcePM?.currency || "USD";
+      }
+
       const transactionData: any = {
         workspace_id: workspaceId,
         payment_method_id: sourcePaymentMethodId,
@@ -104,6 +118,7 @@ export async function POST(request: Request) {
         transaction_date: transaction.transaction_date,
         source: transaction.source || "csv",
         transaction_type: transactionType,
+        currency: transactionCurrency,
         created_by: user.id,
       };
 
@@ -117,10 +132,10 @@ export async function POST(request: Request) {
 
       // For transfers, also create the corresponding transaction in the destination account
       if (isTransfer && transaction.transfer_to_id) {
-        // Verify destination account belongs to workspace
+        // Verify destination account belongs to workspace and get currency
         const { data: destPaymentMethod } = await supabase
           .from("payment_methods")
-          .select("id")
+          .select("id, currency")
           .eq("id", transaction.transfer_to_id)
           .eq("workspace_id", workspaceId)
           .maybeSingle();

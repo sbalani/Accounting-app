@@ -16,10 +16,15 @@ export type AmountFormat =
   | "unified_reverse" // positive = expense, negative = income (credit cards)
   | "separate"; // separate debit and credit columns
 
+export type NumberFormat = 
+  | "us" // period as decimal separator, comma as thousands separator (e.g., 1,234.56)
+  | "european"; // comma as decimal separator, period as thousands separator (e.g., 1.234,56)
+
 export interface CSVImportConfig {
   headerRow: number; // 0-indexed row number where headers are found
   columnMapping: CSVColumnMapping;
   amountFormat: AmountFormat;
+  numberFormat?: NumberFormat; // Defaults to "us" if not specified
 }
 
 export interface ParsedTransaction {
@@ -196,6 +201,35 @@ export function suggestColumnMapping(headers: string[]): CSVColumnMapping {
 }
 
 /**
+ * Parses a number string, handling both US and European formats
+ */
+function parseNumber(value: string, numberFormat: NumberFormat = "us"): number {
+  if (!value || value.trim() === "") return 0;
+  
+  let cleaned = value.trim();
+  
+  if (numberFormat === "european") {
+    // European format: comma as decimal separator, period as thousands separator
+    // Examples: "13,99" = 13.99, "1.234,56" = 1234.56
+    // Remove thousands separators (periods) first
+    cleaned = cleaned.replace(/\./g, "");
+    // Replace comma decimal separator with period
+    cleaned = cleaned.replace(/,/g, ".");
+  } else {
+    // US format: period as decimal separator, comma as thousands separator
+    // Examples: "13.99" = 13.99, "1,234.56" = 1234.56
+    // Remove thousands separators (commas)
+    cleaned = cleaned.replace(/,/g, "");
+  }
+  
+  // Remove any remaining non-numeric characters except minus sign and period
+  cleaned = cleaned.replace(/[^-\d.]/g, "");
+  
+  const parsed = parseFloat(cleaned);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+/**
  * Parses CSV content with configuration
  */
 export function parseCSVWithConfig(
@@ -242,8 +276,8 @@ export function parseCSVWithConfig(
         ? (columns[config.columnMapping.credit]?.trim() || "0")
         : "0";
 
-      const debit = parseFloat(debitStr.replace(/[^-\d.]/g, "")) || 0;
-      const credit = parseFloat(creditStr.replace(/[^-\d.]/g, "")) || 0;
+      const debit = parseNumber(debitStr, config.numberFormat || "us");
+      const credit = parseNumber(creditStr, config.numberFormat || "us");
 
       // Debit is negative, credit is positive
       amount = credit - debit;
@@ -253,7 +287,7 @@ export function parseCSVWithConfig(
         ? (columns[config.columnMapping.amount]?.trim() || "0")
         : "0";
 
-      amount = parseFloat(amountStr.replace(/[^-\d.]/g, "")) || 0;
+      amount = parseNumber(amountStr, config.numberFormat || "us");
 
       if (config.amountFormat === "unified_reverse") {
         // For credit cards: positive = expense, so we negate it
@@ -528,8 +562,8 @@ export function parseXLSXWithConfig(
         ? (String(row[config.columnMapping.credit] || "0").trim() || "0")
         : "0";
 
-      const debit = parseFloat(String(debitStr).replace(/[^-\d.]/g, "")) || 0;
-      const credit = parseFloat(String(creditStr).replace(/[^-\d.]/g, "")) || 0;
+      const debit = parseNumber(String(debitStr), config.numberFormat || "us");
+      const credit = parseNumber(String(creditStr), config.numberFormat || "us");
 
       // Debit is negative, credit is positive
       amount = credit - debit;
@@ -539,7 +573,7 @@ export function parseXLSXWithConfig(
         ? (String(row[config.columnMapping.amount] || "0").trim() || "0")
         : "0";
 
-      amount = parseFloat(String(amountStr).replace(/[^-\d.]/g, "")) || 0;
+      amount = parseNumber(String(amountStr), config.numberFormat || "us");
 
       if (config.amountFormat === "unified_reverse") {
         // For credit cards: positive = expense, so we negate it
