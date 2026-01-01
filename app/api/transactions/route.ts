@@ -21,9 +21,9 @@ export async function GET(request: Request) {
     .from("transactions")
     .select(`
       *,
-      payment_methods!transactions_payment_method_id_fkey(name, type, currency),
-      transaction_categories!transactions_category_id_fkey(id, name, color, is_default),
-      merchants!transactions_merchant_id_fkey(id, name, is_default)
+      payment_methods:payment_method_id(name, type, currency),
+      transaction_categories:category_id(id, name, color, is_default),
+      merchants:merchant_id(id, name, is_default)
     `)
     .eq("workspace_id", workspaceId)
     .order("transaction_date", { ascending: false })
@@ -395,7 +395,7 @@ export async function POST(request: Request) {
           created_by: user.id,
         },
       ])
-      .select("*, payment_methods!transactions_payment_method_id_fkey(name, type, currency)");
+      .select("*, payment_methods:payment_method_id(name, type, currency)");
 
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
