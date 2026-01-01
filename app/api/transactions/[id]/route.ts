@@ -128,11 +128,13 @@ export async function PATCH(
     merchant_id,
     currency,
     exchange_rate,
+    subscription_id,
   } = await request.json();
 
   const updateData: any = {};
   if (description !== undefined) updateData.description = description?.trim() || null;
   if (transaction_date !== undefined) updateData.transaction_date = transaction_date;
+  if (subscription_id !== undefined) updateData.subscription_id = subscription_id || null;
   
   // Handle category_id (preferred) or category (backward compatibility)
   if (category_id !== undefined) {

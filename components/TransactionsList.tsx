@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatCurrency } from "@/lib/utils/currency";
 import { getDatePresetRange, getDatePresetLabel, type DatePreset } from "@/lib/utils/date-presets";
 import AutocompleteDropdown from "./AutocompleteDropdown";
+import SubscriptionSuggestion from "./SubscriptionSuggestion";
 
 interface Transaction {
   id: string;
@@ -14,6 +15,7 @@ interface Transaction {
   category_id: string | null;
   merchant: string | null;
   merchant_id: string | null;
+  subscription_id: string | null;
   transaction_date: string;
   source: string;
   transaction_type?: "income" | "expense" | "transfer";
@@ -51,6 +53,7 @@ export default function TransactionsList() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [updatingTransaction, setUpdatingTransaction] = useState<string | null>(null);
+  const [subscriptionSuggestions, setSubscriptionSuggestions] = useState<Record<string, any>>({});
 
   const fetchPaymentMethods = useCallback(async () => {
     try {
@@ -284,6 +287,86 @@ export default function TransactionsList() {
     }
   };
 
+  const handleMarkAsSubscription = async (transactionId: string) => {
+    try {
+      const response = await fetch("/api/subscriptions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ transaction_id: transactionId }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to create subscription");
+      }
+
+      const data = await response.json();
+      
+      // Update the transaction in the list
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.id === transactionId
+            ? { ...t, subscription_id: data.subscription.id }
+            : t
+        )
+      );
+
+      // Remove suggestion if it exists
+      setSubscriptionSuggestions((prev) => {
+        const updated = { ...prev };
+        delete updated[transactionId];
+        return updated;
+      });
+
+      alert("Transaction marked as subscription successfully!");
+    } catch (err: any) {
+      alert(err.message || "Failed to mark as subscription");
+    }
+  };
+
+  const fetchSubscriptionSuggestions = useCallback(async () => {
+    // Check suggestions for transactions that don't have subscriptions
+    const transactionsToCheck = transactions.filter((t) => !t.subscription_id && t.amount < 0);
+    
+    for (const transaction of transactionsToCheck) {
+      try {
+        const response = await fetch("/api/subscriptions/suggest", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ transaction_id: transaction.id }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.suggestions && data.suggestions.length > 0) {
+            setSubscriptionSuggestions((prev) => ({
+              ...prev,
+              [transaction.id]: data.suggestions[0],
+            }));
+          }
+        }
+      } catch (err) {
+        // Silently fail - suggestions are not critical
+        console.error("Error fetching suggestion:", err);
+      }
+    }
+  }, [transactions]);
+
+  useEffect(() => {
+    if (transactions.length > 0) {
+      // Debounce suggestion fetching
+      const timeoutId = setTimeout(() => {
+        fetchSubscriptionSuggestions();
+      }, 1000);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [transactions, fetchSubscriptionSuggestions]);
+
 
   if (loading) {
     return <div className="text-center py-8">Loading transactions...</div>;
@@ -449,7 +532,24 @@ export default function TransactionsList() {
                     {new Date(transaction.transaction_date).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
-                    {transaction.description || "-"}
+                    <div>
+                      {transaction.description || "-"}
+                      {subscriptionSuggestions[transaction.id] && (
+                        <SubscriptionSuggestion
+                          transactionId={transaction.id}
+                          suggestion={subscriptionSuggestions[transaction.id]}
+                          primaryCurrency={primaryCurrency}
+                          onLinked={() => {
+                            fetchTransactions();
+                            setSubscriptionSuggestions((prev) => {
+                              const updated = { ...prev };
+                              delete updated[transaction.id];
+                              return updated;
+                            });
+                          }}
+                        />
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-sm">
                     <AutocompleteDropdown
@@ -484,18 +584,34 @@ export default function TransactionsList() {
                     {formatCurrency(transaction.amount, primaryCurrency)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <Link
-                      href={`/transactions/${transaction.id}`}
-                      className="text-blue-600 hover:text-blue-500 mr-4"
-                    >
-                      Edit
-                    </Link>
-                    <button
-                      onClick={() => handleDelete(transaction.id)}
-                      className="text-red-600 hover:text-red-500"
-                    >
-                      Delete
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <Link
+                        href={`/transactions/${transaction.id}`}
+                        className="text-blue-600 hover:text-blue-500"
+                      >
+                        Edit
+                      </Link>
+                      {!transaction.subscription_id && (
+                        <button
+                          onClick={() => handleMarkAsSubscription(transaction.id)}
+                          className="text-purple-600 hover:text-purple-500"
+                          title="Mark as subscription"
+                        >
+                          Subscribe
+                        </button>
+                      )}
+                      {transaction.subscription_id && (
+                        <span className="text-purple-600 text-xs" title="Already a subscription">
+                          ✓ Sub
+                        </span>
+                      )}
+                      <button
+                        onClick={() => handleDelete(transaction.id)}
+                        className="text-red-600 hover:text-red-500"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
