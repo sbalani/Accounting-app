@@ -402,6 +402,5 @@ export default function VoiceInputPage() {
           )}
         </div>
       </div>
-    </div>
   );
 }

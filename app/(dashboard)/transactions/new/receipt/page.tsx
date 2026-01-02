@@ -469,6 +469,5 @@ export default function ReceiptUploadPage() {
           )}
         </div>
       </div>
-    </div>
   );
 }

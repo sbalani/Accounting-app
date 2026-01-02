@@ -407,6 +407,5 @@ export default function NewTransactionPage() {
           </form>
         </div>
       </div>
-    </div>
   );
 }
