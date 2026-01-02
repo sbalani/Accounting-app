@@ -185,19 +185,18 @@ export default function ReceiptUploadPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto py-6 sm:px-6 lg:px-8">
-      <div className="px-4 py-6 sm:px-0">
-        <div className="mb-6">
-          <Link href="/transactions/new" className="text-blue-600 hover:text-blue-500 text-sm mb-4 inline-block">
-            ← Back to Add Transaction
-          </Link>
-          <h1 className="text-3xl font-bold text-gray-900">Upload Receipt</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            Upload a receipt image to automatically extract transaction details
-          </p>
-        </div>
+    <div className="max-w-2xl mx-auto py-4 sm:py-6 px-4 sm:px-6 lg:px-8">
+      <div className="mb-6">
+        <Link href="/transactions/new" className="text-blue-600 hover:text-blue-500 text-sm mb-4 inline-block">
+          ← Back to Add Transaction
+        </Link>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Upload Receipt</h1>
+        <p className="mt-2 text-sm text-gray-600">
+          Upload a receipt image to automatically extract transaction details
+        </p>
+      </div>
 
-        <div className="bg-white shadow rounded-lg p-6 space-y-6">
+      <div className="bg-white shadow rounded-lg p-4 sm:p-6 space-y-5 sm:space-y-6">
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
               {error}
@@ -219,33 +218,41 @@ export default function ReceiptUploadPage() {
                 </div>
               ) : parsedTransaction ? (
                 <>
-                  <div className="border rounded-lg p-4 bg-gray-50">
-                    <h2 className="font-semibold mb-4">Extracted Transaction Details</h2>
-                    <div className="space-y-3">
+                  <div className="border rounded-lg p-4 sm:p-5 bg-gray-50">
+                    <h2 className="font-semibold mb-4 text-lg">Extracted Transaction Details</h2>
+                    <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-3">
                           Transaction Type
                         </label>
-                        <div className="flex space-x-4">
-                          <label className="flex items-center text-gray-900">
+                        <div className="grid grid-cols-2 gap-3">
+                          <label className={`flex items-center justify-center p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                            transactionType === "expense"
+                              ? "border-blue-600 bg-blue-50 text-blue-700"
+                              : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                          }`}>
                             <input
                               type="radio"
                               value="expense"
                               checked={transactionType === "expense"}
                               onChange={(e) => setTransactionType(e.target.value as "expense" | "income")}
-                              className="mr-2"
+                              className="sr-only"
                             />
-                            Expense
+                            <span className="font-medium">Expense</span>
                           </label>
-                          <label className="flex items-center text-gray-900">
+                          <label className={`flex items-center justify-center p-3 border-2 rounded-lg cursor-pointer transition-colors ${
+                            transactionType === "income"
+                              ? "border-blue-600 bg-blue-50 text-blue-700"
+                              : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                          }`}>
                             <input
                               type="radio"
                               value="income"
                               checked={transactionType === "income"}
                               onChange={(e) => setTransactionType(e.target.value as "expense" | "income")}
-                              className="mr-2"
+                              className="sr-only"
                             />
-                            Income
+                            <span className="font-medium">Income</span>
                           </label>
                         </div>
                       </div>
@@ -261,25 +268,25 @@ export default function ReceiptUploadPage() {
                           </button>
                         </div>
                         {showPaymentMethodForm ? (
-                          <div className="mt-1 p-4 border border-gray-300 rounded-md bg-gray-50">
+                          <div className="p-4 border border-gray-300 rounded-lg bg-gray-50">
                             <h3 className="text-sm font-medium text-gray-900 mb-3">Create Payment Method</h3>
                             <div className="space-y-3">
                               <div>
-                                <label className="block text-xs font-medium text-gray-700">Name</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-2">Name</label>
                                 <input
                                   type="text"
                                   value={newPaymentMethodName}
                                   onChange={(e) => setNewPaymentMethodName(e.target.value)}
-                                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                  className="block w-full px-4 py-3 text-base border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="e.g., Chase Checking"
                                 />
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-700">Type</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-2">Type</label>
                                 <select
                                   value={newPaymentMethodType}
                                   onChange={(e) => setNewPaymentMethodType(e.target.value as any)}
-                                  className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                  className="block w-full px-4 py-3 text-base border border-gray-300 bg-white text-gray-900 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 >
                                   <option value="cash">Cash</option>
                                   <option value="bank_account">Bank Account</option>
@@ -287,17 +294,17 @@ export default function ReceiptUploadPage() {
                                 </select>
                               </div>
                               <div>
-                                <label className="block text-xs font-medium text-gray-700">Initial Balance</label>
+                                <label className="block text-xs font-medium text-gray-700 mb-2">Initial Balance</label>
                                 <input
                                   type="number"
                                   step="0.01"
                                   value={newPaymentMethodBalance}
                                   onChange={(e) => setNewPaymentMethodBalance(e.target.value)}
-                                  className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                  className="block w-full px-4 py-3 text-base border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                   placeholder="0.00"
                                 />
                               </div>
-                              <div className="flex justify-end space-x-2">
+                              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-2">
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -306,7 +313,7 @@ export default function ReceiptUploadPage() {
                                     setNewPaymentMethodType("bank_account");
                                     setNewPaymentMethodBalance("");
                                   }}
-                                  className="px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 active:bg-gray-100 transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -314,7 +321,7 @@ export default function ReceiptUploadPage() {
                                   type="button"
                                   onClick={handleCreatePaymentMethod}
                                   disabled={!newPaymentMethodName || creatingPaymentMethod}
-                                  className="px-3 py-1.5 text-sm border border-transparent rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  className="w-full sm:w-auto px-3 py-2.5 text-sm border border-transparent rounded-lg text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed active:bg-blue-800 transition-colors"
                                 >
                                   {creatingPaymentMethod ? "Creating..." : "Create"}
                                 </button>
@@ -325,7 +332,7 @@ export default function ReceiptUploadPage() {
                           <select
                             value={paymentMethodId}
                             onChange={(e) => setPaymentMethodId(e.target.value)}
-                            className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            className="block w-full px-4 py-3 text-base border border-gray-300 bg-white text-gray-900 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             required
                           >
                             {paymentMethods.map((pm) => (
@@ -337,7 +344,7 @@ export default function ReceiptUploadPage() {
                         )}
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Amount</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
                         <input
                           type="number"
                           step="0.01"
@@ -348,11 +355,11 @@ export default function ReceiptUploadPage() {
                               amount: parseFloat(e.target.value) || 0,
                             })
                           }
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          className="block w-full px-4 py-3 text-base border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Description</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                         <input
                           type="text"
                           value={parsedTransaction.description || ""}
@@ -362,11 +369,11 @@ export default function ReceiptUploadPage() {
                               description: e.target.value,
                             })
                           }
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          className="block w-full px-4 py-3 text-base border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Merchant/Vendor</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Merchant/Vendor</label>
                         <input
                           type="text"
                           value={parsedTransaction.merchant || ""}
@@ -376,12 +383,12 @@ export default function ReceiptUploadPage() {
                               merchant: e.target.value,
                             })
                           }
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          className="block w-full px-4 py-3 text-base border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                           placeholder="Store or vendor name (optional)"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Category</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
                         <select
                           value={parsedTransaction.category || ""}
                           onChange={(e) =>
@@ -390,7 +397,7 @@ export default function ReceiptUploadPage() {
                               category: e.target.value,
                             })
                           }
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          className="block w-full px-4 py-3 text-base border border-gray-300 bg-white text-gray-900 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
                           <option value="">Select a category (optional)</option>
                           {categories.map((cat) => (
@@ -401,7 +408,7 @@ export default function ReceiptUploadPage() {
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700">Date</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
                         <input
                           type="date"
                           value={parsedTransaction.transaction_date}
@@ -411,7 +418,7 @@ export default function ReceiptUploadPage() {
                               transaction_date: e.target.value,
                             })
                           }
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          className="block w-full px-4 py-3 text-base border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
                     </div>
@@ -425,20 +432,20 @@ export default function ReceiptUploadPage() {
                     />
                   )}
 
-                  <div className="flex justify-end space-x-3">
+                  <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t border-gray-200">
                     <button
                       onClick={() => {
                         setUploadedFile(null);
                         setParsedTransaction(null);
                       }}
-                      className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                      className="w-full sm:w-auto px-4 py-3 text-center border border-gray-300 rounded-lg shadow-sm text-base font-medium text-gray-700 bg-white hover:bg-gray-50 active:bg-gray-100 transition-colors"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleSave}
                       disabled={saving}
-                      className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                      className="w-full sm:w-auto px-4 py-3 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 active:bg-blue-800 transition-colors"
                     >
                       {saving ? "Saving..." : "Save Transaction"}
                     </button>
@@ -446,13 +453,13 @@ export default function ReceiptUploadPage() {
                 </>
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-gray-600">Failed to extract transaction details</p>
+                  <p className="text-gray-600 mb-4">Failed to extract transaction details</p>
                   <button
                     onClick={() => {
                       setUploadedFile(null);
                       setParsedTransaction(null);
                     }}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    className="w-full sm:w-auto px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 active:bg-blue-800 transition-colors font-medium"
                   >
                     Try Again
                   </button>
