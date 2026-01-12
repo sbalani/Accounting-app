@@ -55,3 +55,4 @@ comment on column public.transactions.exchange_rate is 'Exchange rate from trans
 comment on column public.transactions.base_amount is 'Original transaction amount in the transaction currency before conversion.';
 
 
+

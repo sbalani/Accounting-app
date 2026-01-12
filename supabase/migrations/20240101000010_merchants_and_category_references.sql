@@ -145,3 +145,4 @@ create policy "Users can delete merchants in their workspaces"
     and is_default = false
   );
 
+

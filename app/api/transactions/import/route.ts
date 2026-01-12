@@ -185,10 +185,36 @@ export async function POST(request: Request) {
           });
 
           if (!destDuplicates || destDuplicates.length === 0) {
+            // Get currency for destination payment method
+            const destCurrency = destPaymentMethod?.currency || "USD";
+            
+            // Calculate exchange rate and converted amount for destination account
+            let destExchangeRate = 1;
+            let destConvertedAmount = transactionAmount;
+            
+            if (destCurrency !== primaryCurrency) {
+              try {
+                destExchangeRate = await getExchangeRateForDate(
+                  destCurrency,
+                  primaryCurrency,
+                  transaction.transaction_date
+                );
+                destConvertedAmount = convertAmount(transactionAmount, destExchangeRate);
+              } catch (error: any) {
+                // If exchange rate fetch fails, use 1:1 as fallback
+                console.warn(`Failed to fetch exchange rate for destination: ${error.message}, using 1:1`);
+                destExchangeRate = 1;
+                destConvertedAmount = transactionAmount;
+              }
+            }
+            
             importedTransactions.push({
               workspace_id: workspaceId,
               payment_method_id: transaction.transfer_to_id,
-              amount: transactionAmount, // Positive for transfers to this account
+              amount: destConvertedAmount, // Positive for transfers to this account, converted to primary currency
+              base_amount: transactionAmount, // Original amount in destination currency
+              currency: destCurrency,
+              exchange_rate: destExchangeRate,
               description: transaction.description?.trim() || null,
               merchant: transaction.merchant?.trim() || null,
               category: transaction.category?.trim() || null,
