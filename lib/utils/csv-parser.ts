@@ -642,4 +642,3 @@ export function getXLSXPreview(buffer: ArrayBuffer, maxRows: number = 10): strin
   const data = parseXLSXToArray(buffer);
   return data.slice(0, Math.min(maxRows, data.length));
 }
-
