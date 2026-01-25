@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   // Verify payment method belongs to workspace and get currency
   const { data: paymentMethod, error: paymentMethodError } = await supabase
     .from("payment_methods")
-    .select("id, currency")
+    .select("id, currency, last_statement_imported_through")
     .eq("id", payment_method_id)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -71,10 +71,21 @@ export async function POST(request: Request) {
   // Check for duplicates before importing
   const importedTransactions = [];
   const duplicateTransactions = [];
+  const statementMaxDate = transactions.reduce<string | null>((max, tx) => {
+    if (!tx?.transaction_date) return max;
+    if (!max || tx.transaction_date > max) {
+      return tx.transaction_date;
+    }
+    return max;
+  }, null);
 
   for (const transaction of transactions) {
     const isTransfer = transaction.transaction_type === "transfer";
-    const transactionAmount = Math.abs(parseFloat(transaction.amount));
+    const rawAmount = parseFloat(transaction.amount);
+
+    if (Number.isNaN(rawAmount)) {
+      continue;
+    }
     
     // For transfers, use transfer_from_id as the payment_method_id
     // For regular transactions, use the provided payment_method_id
@@ -82,10 +93,53 @@ export async function POST(request: Request) {
       ? transaction.transfer_from_id 
       : payment_method_id;
 
+    // Get currency from payment method
+    let transactionCurrency = "USD";
+    if (sourcePaymentMethodId === payment_method_id) {
+      transactionCurrency = paymentMethod?.currency || "USD";
+    } else {
+      const { data: sourcePM } = await supabase
+        .from("payment_methods")
+        .select("currency")
+        .eq("id", sourcePaymentMethodId)
+        .eq("workspace_id", workspaceId)
+        .maybeSingle();
+      transactionCurrency = sourcePM?.currency || "USD";
+    }
+
+    // Calculate base amount (original amount in transaction currency)
+    const baseAmount = Math.abs(rawAmount);
+    
+    // Calculate exchange rate and converted amount
+    let exchangeRate = 1;
+    let convertedAmount = baseAmount;
+    
+    if (transactionCurrency !== primaryCurrency) {
+      try {
+        exchangeRate = await getExchangeRateForDate(
+          transactionCurrency,
+          primaryCurrency,
+          transaction.transaction_date
+        );
+        convertedAmount = convertAmount(baseAmount, exchangeRate);
+      } catch (error: any) {
+        // If exchange rate fetch fails, use 1:1 as fallback
+        console.warn(`Failed to fetch exchange rate: ${error.message}, using 1:1`);
+        exchangeRate = 1;
+        convertedAmount = baseAmount;
+      }
+    }
+
+    const signedConvertedAmount = isTransfer
+      ? -convertedAmount
+      : rawAmount >= 0
+      ? convertedAmount
+      : -convertedAmount;
+
     // Check for duplicates using the database function
     const { data: duplicates } = await supabase.rpc("find_duplicate_transactions", {
       workspace_id_param: workspaceId,
-      amount_param: transactionAmount,
+      amount_param: signedConvertedAmount,
       transaction_date_param: transaction.transaction_date,
       payment_method_id_param: sourcePaymentMethodId,
     });
@@ -100,56 +154,20 @@ export async function POST(request: Request) {
       let transactionType: "expense" | "income" | "transfer" = "expense";
       if (isTransfer) {
         transactionType = "transfer";
-      } else if (transaction.amount >= 0) {
+      } else if (rawAmount >= 0) {
         transactionType = "income";
-      }
-
-      // Get currency from payment method
-      let transactionCurrency = "USD";
-      if (sourcePaymentMethodId === payment_method_id) {
-        transactionCurrency = paymentMethod?.currency || "USD";
-      } else {
-        const { data: sourcePM } = await supabase
-          .from("payment_methods")
-          .select("currency")
-          .eq("id", sourcePaymentMethodId)
-          .eq("workspace_id", workspaceId)
-          .maybeSingle();
-        transactionCurrency = sourcePM?.currency || "USD";
-      }
-
-      // Calculate base amount (original amount in transaction currency)
-      const baseAmount = Math.abs(parseFloat(transaction.amount));
-      
-      // Calculate exchange rate and converted amount
-      let exchangeRate = 1;
-      let convertedAmount = baseAmount;
-      
-      if (transactionCurrency !== primaryCurrency) {
-        try {
-          exchangeRate = await getExchangeRateForDate(
-            transactionCurrency,
-            primaryCurrency,
-            transaction.transaction_date
-          );
-          convertedAmount = convertAmount(baseAmount, exchangeRate);
-        } catch (error: any) {
-          // If exchange rate fetch fails, use 1:1 as fallback
-          console.warn(`Failed to fetch exchange rate: ${error.message}, using 1:1`);
-          exchangeRate = 1;
-          convertedAmount = baseAmount;
-        }
       }
 
       const transactionData: any = {
         workspace_id: workspaceId,
         payment_method_id: sourcePaymentMethodId,
-        amount: isTransfer ? -convertedAmount : (transaction.amount >= 0 ? convertedAmount : -convertedAmount), // Converted amount in primary currency
+        amount: signedConvertedAmount, // Converted amount in primary currency
         base_amount: baseAmount, // Original amount in transaction currency
         currency: transactionCurrency,
         exchange_rate: exchangeRate,
         description: transaction.description?.trim() || null,
         merchant: transaction.merchant?.trim() || null,
+        merchant_id: transaction.merchant_id || null,
         category: transaction.category?.trim() || null,
         transaction_date: transaction.transaction_date,
         source: transaction.source || "csv",
@@ -176,47 +194,48 @@ export async function POST(request: Request) {
           .maybeSingle();
 
         if (destPaymentMethod) {
+          // Get currency for destination payment method
+          const destCurrency = destPaymentMethod?.currency || "USD";
+          
+          // Calculate exchange rate and converted amount for destination account
+          let destExchangeRate = 1;
+          let destConvertedAmount = baseAmount;
+          
+          if (destCurrency !== primaryCurrency) {
+            try {
+              destExchangeRate = await getExchangeRateForDate(
+                destCurrency,
+                primaryCurrency,
+                transaction.transaction_date
+              );
+              destConvertedAmount = convertAmount(baseAmount, destExchangeRate);
+            } catch (error: any) {
+              // If exchange rate fetch fails, use 1:1 as fallback
+              console.warn(`Failed to fetch exchange rate for destination: ${error.message}, using 1:1`);
+              destExchangeRate = 1;
+              destConvertedAmount = baseAmount;
+            }
+          }
+
           // Check for duplicates in destination account
           const { data: destDuplicates } = await supabase.rpc("find_duplicate_transactions", {
             workspace_id_param: workspaceId,
-            amount_param: transactionAmount,
+            amount_param: destConvertedAmount,
             transaction_date_param: transaction.transaction_date,
             payment_method_id_param: transaction.transfer_to_id,
           });
 
           if (!destDuplicates || destDuplicates.length === 0) {
-            // Get currency for destination payment method
-            const destCurrency = destPaymentMethod?.currency || "USD";
-            
-            // Calculate exchange rate and converted amount for destination account
-            let destExchangeRate = 1;
-            let destConvertedAmount = transactionAmount;
-            
-            if (destCurrency !== primaryCurrency) {
-              try {
-                destExchangeRate = await getExchangeRateForDate(
-                  destCurrency,
-                  primaryCurrency,
-                  transaction.transaction_date
-                );
-                destConvertedAmount = convertAmount(transactionAmount, destExchangeRate);
-              } catch (error: any) {
-                // If exchange rate fetch fails, use 1:1 as fallback
-                console.warn(`Failed to fetch exchange rate for destination: ${error.message}, using 1:1`);
-                destExchangeRate = 1;
-                destConvertedAmount = transactionAmount;
-              }
-            }
-            
             importedTransactions.push({
               workspace_id: workspaceId,
               payment_method_id: transaction.transfer_to_id,
               amount: destConvertedAmount, // Positive for transfers to this account, converted to primary currency
-              base_amount: transactionAmount, // Original amount in destination currency
+              base_amount: baseAmount, // Original amount in destination currency
               currency: destCurrency,
               exchange_rate: destExchangeRate,
               description: transaction.description?.trim() || null,
               merchant: transaction.merchant?.trim() || null,
+              merchant_id: transaction.merchant_id || null,
               category: transaction.category?.trim() || null,
               transaction_date: transaction.transaction_date,
               source: transaction.source || "csv",
@@ -244,6 +263,17 @@ export async function POST(request: Request) {
     }
 
     insertedCount = data?.length || 0;
+  }
+
+  if (statementMaxDate) {
+    const existingLastStatementDate = paymentMethod?.last_statement_imported_through;
+    if (!existingLastStatementDate || statementMaxDate > existingLastStatementDate) {
+      await supabase
+        .from("payment_methods")
+        .update({ last_statement_imported_through: statementMaxDate })
+        .eq("id", payment_method_id)
+        .eq("workspace_id", workspaceId);
+    }
   }
 
   return NextResponse.json({

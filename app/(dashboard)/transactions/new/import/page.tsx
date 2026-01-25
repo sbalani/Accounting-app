@@ -5,6 +5,7 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import FileUpload from "@/components/FileUpload";
+import AutocompleteDropdown from "@/components/AutocompleteDropdown";
 import {
   CSVColumnMapping,
   AmountFormat,
@@ -18,8 +19,18 @@ import { formatCurrency } from "@/lib/utils/currency";
 type ImportStep =
   | "upload"
   | "configure"
+  | "merchants"
   | "review"
   | "importing";
+
+const normalizeMerchantName = (value: string) => value.trim().toLowerCase();
+
+const formatDate = (value?: string | null) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString();
+};
 
 export default function StatementImportPage() {
   const router = useRouter();
@@ -52,6 +63,19 @@ export default function StatementImportPage() {
   const [parsedTransactions, setParsedTransactions] = useState<ParsedTransaction[]>([]);
   const [processing, setProcessing] = useState(false);
   const [importing, setImporting] = useState(false);
+
+  // Merchant mapping
+  const [merchants, setMerchants] = useState<any[]>([]);
+  const [statementMerchants, setStatementMerchants] = useState<
+    { key: string; name: string }[]
+  >([]);
+  const [merchantMapping, setMerchantMapping] = useState<Record<string, string | null>>({});
+  const [creatingMerchants, setCreatingMerchants] = useState<Record<string, boolean>>({});
+  const [creatingAllMerchants, setCreatingAllMerchants] = useState(false);
+  const [statementDateRange, setStatementDateRange] = useState<{
+    min: string | null;
+    max: string | null;
+  } | null>(null);
   
   // Transfer rules
   const [transferRules, setTransferRules] = useState<any[]>([]);
@@ -79,6 +103,7 @@ export default function StatementImportPage() {
   useEffect(() => {
     fetchPaymentMethods();
     fetchTransferRules();
+    fetchMerchants();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -118,6 +143,60 @@ export default function StatementImportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentMethodId, step, csvHeaders.length]);
 
+  useEffect(() => {
+    if (parsedTransactions.length === 0) {
+      setStatementMerchants([]);
+      setMerchantMapping({});
+      setStatementDateRange(null);
+      return;
+    }
+
+    const merchantMap = new Map<string, string>();
+    let minDate: string | null = null;
+    let maxDate: string | null = null;
+
+    parsedTransactions.forEach((transaction) => {
+      if (transaction.transaction_date) {
+        if (!minDate || transaction.transaction_date < minDate) {
+          minDate = transaction.transaction_date;
+        }
+        if (!maxDate || transaction.transaction_date > maxDate) {
+          maxDate = transaction.transaction_date;
+        }
+      }
+
+      const merchantName = transaction.merchant?.trim();
+      if (merchantName) {
+        const key = normalizeMerchantName(merchantName);
+        if (!merchantMap.has(key)) {
+          merchantMap.set(key, merchantName);
+        }
+      }
+    });
+
+    setStatementDateRange({ min: minDate, max: maxDate });
+
+    const uniqueMerchants = Array.from(merchantMap.entries())
+      .map(([key, name]) => ({ key, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    setStatementMerchants(uniqueMerchants);
+    setMerchantMapping((prev) => {
+      const next: Record<string, string | null> = {};
+      uniqueMerchants.forEach(({ key }) => {
+        if (prev[key] !== undefined) {
+          next[key] = prev[key];
+          return;
+        }
+        const match = merchants.find(
+          (merchant) => normalizeMerchantName(merchant.name) === key
+        );
+        next[key] = match ? match.id : null;
+      });
+      return next;
+    });
+  }, [parsedTransactions, merchants]);
+
   const fetchPaymentMethods = async () => {
     try {
       const response = await fetch("/api/payment-methods");
@@ -154,6 +233,18 @@ export default function StatementImportPage() {
       }
     } catch (err) {
       console.error("Error fetching transfer rules:", err);
+    }
+  };
+
+  const fetchMerchants = async () => {
+    try {
+      const response = await fetch("/api/merchants");
+      if (response.ok) {
+        const data = await response.json();
+        setMerchants(data.merchants || []);
+      }
+    } catch (err) {
+      console.error("Error fetching merchants:", err);
     }
   };
 
@@ -243,6 +334,107 @@ export default function StatementImportPage() {
     } finally {
       setCreatingTransferRule(false);
     }
+  };
+
+  const createMerchantByName = async (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return null;
+
+    const existingMerchant = merchants.find(
+      (merchant) => normalizeMerchantName(merchant.name) === normalizeMerchantName(trimmedName)
+    );
+    if (existingMerchant) {
+      return existingMerchant;
+    }
+
+    try {
+      const response = await fetch("/api/merchants", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: trimmedName }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to create merchant");
+      }
+
+      const data = await response.json();
+      const merchant = data.merchant;
+      setMerchants((prev) => {
+        const exists = prev.some(
+          (item) => normalizeMerchantName(item.name) === normalizeMerchantName(merchant.name)
+        );
+        return exists ? prev : [...prev, merchant];
+      });
+      return merchant;
+    } catch (err: any) {
+      setError(err.message || "Failed to create merchant");
+      return null;
+    }
+  };
+
+  const handleMerchantMappingChange = (key: string, merchantId: string | null) => {
+    setMerchantMapping((prev) => ({ ...prev, [key]: merchantId }));
+  };
+
+  const handleCreateMerchantForMapping = async (name: string, key: string) => {
+    if (creatingMerchants[key]) return;
+
+    setCreatingMerchants((prev) => ({ ...prev, [key]: true }));
+    setError(null);
+    try {
+      const merchant = await createMerchantByName(name);
+      if (merchant) {
+        setMerchantMapping((prev) => ({ ...prev, [key]: merchant.id }));
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreatingMerchants((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const handleCreateAllMerchants = async () => {
+    const missing = statementMerchants.filter(
+      (merchant) => !merchantMapping[merchant.key]
+    );
+    if (missing.length === 0 || creatingAllMerchants) return;
+
+    setCreatingAllMerchants(true);
+    setError(null);
+    try {
+      for (const merchant of missing) {
+        const created = await createMerchantByName(merchant.name);
+        if (created) {
+          setMerchantMapping((prev) => ({ ...prev, [merchant.key]: created.id }));
+        }
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCreatingAllMerchants(false);
+    }
+  };
+
+  const applyMerchantMapping = () => {
+    const mapping = merchantMapping;
+    setParsedTransactions((prev) =>
+      prev.map((transaction) => {
+        const merchantName = transaction.merchant?.trim();
+        if (!merchantName) {
+          return transaction;
+        }
+        const key = normalizeMerchantName(merchantName);
+        const mappedId = mapping[key] ?? null;
+        return {
+          ...transaction,
+          merchant_id: mappedId,
+        };
+      })
+    );
   };
 
   const applyTransferRules = (rulesToApply?: any[]) => {
@@ -454,8 +646,21 @@ export default function StatementImportPage() {
       }
 
       const data = await response.json();
-      setParsedTransactions(data.transactions || []);
-      setStep("review");
+      const transactions = data.transactions || [];
+      setParsedTransactions(transactions);
+
+      const hasMerchantValues = transactions.some(
+        (transaction: ParsedTransaction) => transaction.merchant?.trim()
+      );
+      const shouldShowMerchantStep =
+        (fileType === "csv" || fileType === "xlsx") &&
+        columnMapping.merchant !== null;
+
+      if (shouldShowMerchantStep && hasMerchantValues) {
+        setStep("merchants");
+      } else {
+        setStep("review");
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -533,6 +738,31 @@ export default function StatementImportPage() {
     }
   };
 
+  const selectedPaymentMethod = paymentMethods.find(
+    (pm) => pm.id === paymentMethodId
+  );
+  const lastStatementImportedThrough =
+    selectedPaymentMethod?.last_statement_imported_through;
+  const showMerchantStep =
+    (fileType === "csv" || fileType === "xlsx") &&
+    columnMapping.merchant !== null &&
+    (step === "merchants" || statementMerchants.length > 0);
+  const steps = [
+    { key: "upload", label: "Upload" },
+    ...(fileType === "csv" || fileType === "xlsx"
+      ? [
+          { key: "configure", label: "Configure" },
+          ...(showMerchantStep ? [{ key: "merchants", label: "Merchants" }] : []),
+        ]
+      : []),
+    { key: "review", label: "Review" },
+  ];
+  const currentStepKey = step === "importing" ? "review" : step;
+  const currentStepIndex = steps.findIndex((item) => item.key === currentStepKey);
+  const unmappedMerchants = statementMerchants.filter(
+    (merchant) => !merchantMapping[merchant.key]
+  );
+
   return (
     <div className="max-w-4xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
@@ -555,30 +785,40 @@ export default function StatementImportPage() {
 
           {/* Step indicators */}
           <div className="flex items-center justify-center space-x-4 mb-6">
-            <div className={`flex items-center ${step === "upload" ? "text-blue-600" : step === "configure" || step === "review" || step === "importing" ? "text-green-600" : "text-gray-400"}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step === "upload" ? "bg-blue-600 text-white" : step === "configure" || step === "review" || step === "importing" ? "bg-green-600 text-white" : "bg-gray-300 text-gray-600"}`}>
-                1
-              </div>
-              <span className="ml-2 text-sm font-medium">Upload</span>
-            </div>
-            {(fileType === "csv" || fileType === "xlsx") && (
-              <>
-                <div className="w-8 h-px bg-gray-300"></div>
-                <div className={`flex items-center ${step === "configure" ? "text-blue-600" : step === "review" || step === "importing" ? "text-green-600" : "text-gray-400"}`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step === "configure" ? "bg-blue-600 text-white" : step === "review" || step === "importing" ? "bg-green-600 text-white" : "bg-gray-300 text-gray-600"}`}>
-                    2
+            {steps.map((item, index) => {
+              const isCurrent = index === currentStepIndex;
+              const isComplete = index < currentStepIndex;
+
+              return (
+                <React.Fragment key={item.key}>
+                  <div
+                    className={`flex items-center ${
+                      isCurrent
+                        ? "text-blue-600"
+                        : isComplete
+                        ? "text-green-600"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        isCurrent
+                          ? "bg-blue-600 text-white"
+                          : isComplete
+                          ? "bg-green-600 text-white"
+                          : "bg-gray-300 text-gray-600"
+                      }`}
+                    >
+                      {index + 1}
+                    </div>
+                    <span className="ml-2 text-sm font-medium">{item.label}</span>
                   </div>
-                  <span className="ml-2 text-sm font-medium">Configure</span>
-                </div>
-              </>
-            )}
-            <div className="w-8 h-px bg-gray-300"></div>
-            <div className={`flex items-center ${step === "review" ? "text-blue-600" : step === "importing" ? "text-green-600" : "text-gray-400"}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step === "review" ? "bg-blue-600 text-white" : step === "importing" ? "bg-green-600 text-white" : "bg-gray-300 text-gray-600"}`}>
-                {(fileType === "csv" || fileType === "xlsx") ? "3" : "2"}
-              </div>
-              <span className="ml-2 text-sm font-medium">Review</span>
-            </div>
+                  {index < steps.length - 1 && (
+                    <div className="w-8 h-px bg-gray-300"></div>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>
 
           {/* Upload Step */}
@@ -625,6 +865,13 @@ export default function StatementImportPage() {
                     </option>
                   ))}
                 </select>
+                <p className="mt-2 text-xs text-gray-500">
+                  {lastStatementImportedThrough
+                    ? `Last statement imported through ${formatDate(
+                        lastStatementImportedThrough
+                      )}.`
+                    : "No statements imported yet for this account."}
+                </p>
               </div>
 
               {/* Header Row Selection */}
@@ -1047,6 +1294,128 @@ export default function StatementImportPage() {
             </div>
           )}
 
+          {/* Merchant Mapping Step */}
+          {step === "merchants" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-medium text-gray-900">Match Merchants</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Map merchant names from your statement to saved merchants, or create new ones.
+                </p>
+                {statementDateRange?.max && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    Statement range: {formatDate(statementDateRange.min)} -{" "}
+                    {formatDate(statementDateRange.max)}
+                  </p>
+                )}
+              </div>
+
+              {statementMerchants.length === 0 ? (
+                <div className="text-sm text-gray-500">
+                  No merchant values were detected in this statement.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-gray-600">
+                      Found {statementMerchants.length} unique merchant names.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleCreateAllMerchants}
+                      disabled={creatingAllMerchants || unmappedMerchants.length === 0}
+                      className="px-3 py-1 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {creatingAllMerchants ? "Creating..." : "Create missing merchants"}
+                    </button>
+                  </div>
+
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Statement Merchant
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Map To Merchant
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {statementMerchants.map((merchant) => {
+                          const mappedId = merchantMapping[merchant.key] || null;
+                          const isCreating = creatingMerchants[merchant.key];
+
+                          return (
+                            <tr key={merchant.key}>
+                              <td className="px-4 py-2 text-sm text-gray-900">
+                                {merchant.name}
+                              </td>
+                              <td className="px-4 py-2 text-sm">
+                                <AutocompleteDropdown
+                                  items={merchants}
+                                  value={mappedId}
+                                  onChange={(merchantId, _merchantName) =>
+                                    handleMerchantMappingChange(merchant.key, merchantId)
+                                  }
+                                  onCreateNew={createMerchantByName}
+                                  placeholder="Select merchant..."
+                                />
+                              </td>
+                              <td className="px-4 py-2 text-sm">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleCreateMerchantForMapping(merchant.name, merchant.key)
+                                  }
+                                  disabled={isCreating}
+                                  className="text-xs text-blue-600 hover:text-blue-500 disabled:opacity-50"
+                                >
+                                  {isCreating ? "Creating..." : "Create"}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {unmappedMerchants.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded text-sm">
+                      {unmappedMerchants.length} merchant
+                      {unmappedMerchants.length === 1 ? " is" : "s are"} still
+                      unmapped. You can leave them blank or create new merchants.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setStep("configure")}
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Back to Configure
+                </button>
+                <button
+                  onClick={() => {
+                    applyMerchantMapping();
+                    setStep("review");
+                  }}
+                  disabled={creatingAllMerchants}
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  Continue to Review
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Review Step */}
           {step === "review" && (
             <div className="space-y-6">
@@ -1083,6 +1452,13 @@ export default function StatementImportPage() {
                   >
                     + Add Account
                   </button>
+                </div>
+                <div className="mt-2 text-xs text-gray-500">
+                  {lastStatementImportedThrough
+                    ? `Last statement imported through ${formatDate(
+                        lastStatementImportedThrough
+                      )}.`
+                    : "No statements imported yet for this account."}
                 </div>
               </div>
 
@@ -1361,7 +1737,11 @@ export default function StatementImportPage() {
                 <button
                   onClick={() => {
                     if (fileType === "csv" || fileType === "xlsx") {
-                      setStep("configure");
+                      if (showMerchantStep && statementMerchants.length > 0) {
+                        setStep("merchants");
+                      } else {
+                        setStep("configure");
+                      }
                     } else {
                       setStep("upload");
                       setUploadedFile(null);
@@ -1371,7 +1751,11 @@ export default function StatementImportPage() {
                   disabled={importing}
                   className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
                 >
-                  {(fileType === "csv" || fileType === "xlsx") ? "Back to Configure" : "Cancel"}
+                  {(fileType === "csv" || fileType === "xlsx")
+                    ? showMerchantStep && statementMerchants.length > 0
+                      ? "Back to Merchants"
+                      : "Back to Configure"
+                    : "Cancel"}
                 </button>
                 <button
                   onClick={handleImport}
