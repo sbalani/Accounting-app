@@ -31,6 +31,7 @@ export interface ParsedTransaction {
   amount: number;
   description: string | null;
   merchant: string | null;
+  merchant_id?: string | null;
   category: string | null;
   transaction_date: string;
   transaction_type?: "expense" | "income" | "transfer";
