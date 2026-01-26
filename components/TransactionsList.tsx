@@ -54,6 +54,8 @@ export default function TransactionsList() {
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [updatingTransaction, setUpdatingTransaction] = useState<string | null>(null);
   const [subscriptionSuggestions, setSubscriptionSuggestions] = useState<Record<string, any>>({});
+  const [editingDescription, setEditingDescription] = useState<string | null>(null);
+  const [descriptionValue, setDescriptionValue] = useState<string>("");
 
   const fetchPaymentMethods = useCallback(async () => {
     try {
@@ -237,6 +239,52 @@ export default function TransactionsList() {
     } finally {
       setUpdatingTransaction(null);
     }
+  };
+
+  const handleDescriptionChange = async (transactionId: string, newDescription: string) => {
+    setUpdatingTransaction(transactionId);
+    try {
+      const response = await fetch(`/api/transactions/${transactionId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ description: newDescription }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update description");
+      }
+
+      const data = await response.json();
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.id === transactionId
+            ? { ...t, description: data.transaction.description || null }
+            : t
+        )
+      );
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUpdatingTransaction(null);
+      setEditingDescription(null);
+    }
+  };
+
+  const startEditingDescription = (transactionId: string, currentDescription: string | null) => {
+    setEditingDescription(transactionId);
+    setDescriptionValue(currentDescription || "");
+  };
+
+  const cancelEditingDescription = () => {
+    setEditingDescription(null);
+    setDescriptionValue("");
+  };
+
+  const saveDescription = (transactionId: string) => {
+    handleDescriptionChange(transactionId, descriptionValue);
   };
 
   const handleCreateCategory = async (name: string): Promise<Category | null> => {
@@ -532,7 +580,34 @@ export default function TransactionsList() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     <div>
-                      {transaction.description || "-"}
+                      {editingDescription === transaction.id ? (
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="text"
+                            value={descriptionValue}
+                            onChange={(e) => setDescriptionValue(e.target.value)}
+                            onBlur={() => saveDescription(transaction.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.currentTarget.blur();
+                              } else if (e.key === "Escape") {
+                                cancelEditingDescription();
+                              }
+                            }}
+                            className="flex-1 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            autoFocus
+                            disabled={updatingTransaction === transaction.id}
+                          />
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => startEditingDescription(transaction.id, transaction.description)}
+                          className="cursor-pointer hover:bg-gray-50 px-2 py-1 rounded -mx-2 -my-1 min-h-[1.5rem] flex items-center"
+                          title="Click to edit description"
+                        >
+                          {transaction.description || <span className="text-gray-400 italic">Click to add description</span>}
+                        </div>
+                      )}
                       {subscriptionSuggestions[transaction.id] && (
                         <SubscriptionSuggestion
                           transactionId={transaction.id}
