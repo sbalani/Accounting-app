@@ -15,6 +15,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const userId = user.id;
   const workspaceId = await getCurrentWorkspaceId();
 
   if (!workspaceId) {
@@ -193,7 +194,7 @@ export async function POST(request: Request) {
         transaction_type: "transfer",
         transfer_from_id: fromId,
         transfer_to_id: toId,
-        created_by: user.id,
+        created_by: userId,
       },
       {
         workspace_id: workspaceId,
@@ -211,7 +212,7 @@ export async function POST(request: Request) {
         transaction_type: "transfer",
         transfer_from_id: fromId,
         transfer_to_id: toId,
-        created_by: user.id,
+        created_by: userId,
       }
     );
   }
@@ -310,7 +311,7 @@ export async function POST(request: Request) {
         transaction_date: transaction.transaction_date,
         source: transaction.source || "csv",
         transaction_type: transactionType,
-        created_by: user.id,
+        created_by: userId,
       };
 
       // Add transfer fields if it's a transfer
@@ -380,7 +381,7 @@ export async function POST(request: Request) {
               transaction_type: "transfer",
               transfer_from_id: transaction.transfer_from_id || sourcePaymentMethodId,
               transfer_to_id: transaction.transfer_to_id,
-              created_by: user.id,
+              created_by: userId,
             });
           }
         }
