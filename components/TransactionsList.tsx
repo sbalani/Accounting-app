@@ -70,6 +70,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
   const [tags, setTags] = useState<Tag[]>([]);
   const [transactionTags, setTransactionTags] = useState<Record<string, Tag[]>>({});
   const [openTagPickerFor, setOpenTagPickerFor] = useState<string | null>(null);
+  const [openingBalance, setOpeningBalance] = useState<number | null>(null);
   const originalDescriptionRef = useRef<string>("");
   const isCancelingRef = useRef<boolean>(false);
   /** AbortControllers for in-flight PATCH requests, keyed by "field:transactionId". Cancel previous when user edits same field again. */
@@ -161,7 +162,9 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
       }
       const data = await response.json();
       setTransactions(data.transactions || []);
-      // Map tags per transaction for quick lookup
+      setOpeningBalance(
+        data.openingBalance != null ? Number(data.openingBalance) : null
+      );
       if (data.transactions) {
         const tagMap: Record<string, Tag[]> = {};
         for (const tx of data.transactions) {
@@ -565,6 +568,23 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
     .filter((t) => t.amount > 0)
     .reduce((sum, t) => sum + t.amount, 0);
 
+  const effectiveAccount = paymentMethodId || filterPaymentMethod;
+  const showBalance = !!effectiveAccount && openingBalance != null;
+  const balanceAfterMap = (() => {
+    if (!showBalance || openingBalance == null) return new Map<string, number>();
+    const byDateAsc = [...transactions].sort((a, b) => {
+      const d = a.transaction_date.localeCompare(b.transaction_date);
+      return d !== 0 ? d : a.id.localeCompare(b.id);
+    });
+    const m = new Map<string, number>();
+    let running = openingBalance;
+    for (const t of byDateAsc) {
+      running += t.amount;
+      m.set(t.id, running);
+    }
+    return m;
+  })();
+
   return (
     <div className="space-y-6">
       <div className="bg-white shadow rounded-lg p-6">
@@ -672,6 +692,21 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
             <p className="text-2xl font-bold text-red-700">{formatCurrency(totalExpenses, primaryCurrency)}</p>
           </div>
         </div>
+        {showBalance && openingBalance != null && transactions.length > 0 && (() => {
+          // Calculate closing balance using the same chronological sort as the table
+          const byDateAsc = [...transactions].sort((a, b) => {
+            const d = a.transaction_date.localeCompare(b.transaction_date);
+            return d !== 0 ? d : a.id.localeCompare(b.id);
+          });
+          const closingBalance = openingBalance + byDateAsc.reduce((s, t) => s + t.amount, 0);
+          return (
+            <p className="mt-4 text-sm text-gray-600">
+              Opening balance: {formatCurrency(openingBalance, primaryCurrency)}
+              {" → "}
+              Closing balance: {formatCurrency(closingBalance, primaryCurrency)}
+            </p>
+          );
+        })()}
       </div>
 
       {transactions.length === 0 ? (
@@ -713,6 +748,11 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Amount
                 </th>
+                {showBalance && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Balance
+                  </th>
+                )}
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
@@ -882,6 +922,11 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
                   >
                     {formatCurrency(transaction.amount, primaryCurrency)}
                   </td>
+                  {showBalance && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm tabular-nums text-gray-700">
+                      {formatCurrency(balanceAfterMap.get(transaction.id) ?? 0, primaryCurrency)}
+                    </td>
+                  )}
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex items-center space-x-2">
                       <Link

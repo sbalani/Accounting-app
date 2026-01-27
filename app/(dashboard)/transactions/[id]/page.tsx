@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
+import AutocompleteDropdown from "@/components/AutocompleteDropdown";
 
 interface Transaction {
   id: string;
@@ -10,7 +11,11 @@ interface Transaction {
   amount: number;
   description: string | null;
   category: string | null;
+  category_id?: string | null;
   transaction_date: string;
+  transaction_type?: "expense" | "income" | "transfer";
+  transfer_from_id?: string | null;
+  transfer_to_id?: string | null;
   payment_methods: {
     name: string;
     type: string;
@@ -22,9 +27,18 @@ interface PaymentMethod {
   name: string;
 }
 
+interface MatchableTransaction {
+  id: string;
+  amount: number;
+  description: string | null;
+  transaction_date: string;
+  transaction_type?: string;
+}
+
 interface Category {
   id: string;
   name: string;
+  color?: string;
 }
 
 export default function EditTransactionPage() {
@@ -39,12 +53,18 @@ export default function EditTransactionPage() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [merchant, setMerchant] = useState("");
-  const [category, setCategory] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [transactionDate, setTransactionDate] = useState("");
   const [transactionType, setTransactionType] = useState<"expense" | "income">("expense");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [convertOtherAccountId, setConvertOtherAccountId] = useState("");
+  const [matchableTransactions, setMatchableTransactions] = useState<MatchableTransaction[]>([]);
+  const [selectedMatchId, setSelectedMatchId] = useState("");
+  const [loadingMatches, setLoadingMatches] = useState(false);
+  const [converting, setConverting] = useState(false);
 
   const fetchTransaction = useCallback(async () => {
     try {
@@ -58,7 +78,7 @@ export default function EditTransactionPage() {
       setAmount(Math.abs(data.transaction.amount).toString());
       setDescription(data.transaction.description || "");
       setMerchant(data.transaction.merchant || "");
-      setCategory(data.transaction.category || "");
+      setCategoryId(data.transaction.category_id || null);
       setTransactionDate(data.transaction.transaction_date);
       // Set transaction type based on amount sign (negative = expense, positive = income)
       setTransactionType(data.transaction.amount < 0 ? "expense" : "income");
@@ -93,11 +113,75 @@ export default function EditTransactionPage() {
     }
   }, []);
 
+  const handleCreateCategory = useCallback(
+    async (name: string): Promise<Category | null> => {
+      try {
+        const r = await fetch("/api/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim() }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "Failed to create category");
+        setCategories((prev) => [...prev, d.category]);
+        return d.category;
+      } catch (err) {
+        console.error("Error creating category:", err);
+        return null;
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     fetchPaymentMethods();
     fetchCategories();
     fetchTransaction();
   }, [fetchPaymentMethods, fetchCategories, fetchTransaction]);
+
+  useEffect(() => {
+    if (!convertOtherAccountId || !transaction) {
+      setMatchableTransactions([]);
+      setSelectedMatchId("");
+      return;
+    }
+    const aborter = new AbortController();
+    setLoadingMatches(true);
+    setSelectedMatchId("");
+    fetch(
+      `/api/transactions?payment_method_id=${encodeURIComponent(convertOtherAccountId)}`,
+      { signal: aborter.signal }
+    )
+      .then((r) => {
+        if (!r.ok) {
+          throw new Error(`Failed to fetch transactions: ${r.status} ${r.statusText}`);
+        }
+        return r.json();
+      })
+      .then((data) => {
+        const list: MatchableTransaction[] = data.transactions || [];
+        const myAmount = transaction.amount;
+        const absMe = Math.abs(myAmount);
+        const oppositeSign = (t: { amount: number }) =>
+          (myAmount >= 0 && t.amount < 0) || (myAmount < 0 && t.amount >= 0);
+        const sameAbs = (t: { amount: number }) => Math.abs(Math.abs(t.amount) - absMe) < 0.01;
+        const notTransfer = (t: MatchableTransaction) => t.transaction_type !== "transfer";
+        const notSelf = (t: MatchableTransaction) => t.id !== transaction.id;
+        const matchable = list.filter(
+          (t) => oppositeSign(t) && sameAbs(t) && notTransfer(t) && notSelf(t)
+        );
+        setMatchableTransactions(matchable);
+      })
+      .catch((e) => {
+        if (e.name !== "AbortError") {
+          console.error("Error fetching matchable transactions:", e);
+          setMatchableTransactions([]);
+          setError(e instanceof Error ? e.message : "Failed to load matching transactions");
+        }
+      })
+      .finally(() => setLoadingMatches(false));
+    return () => aborter.abort();
+  }, [convertOtherAccountId, transaction]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,7 +207,7 @@ export default function EditTransactionPage() {
           amount: finalAmount,
           description: description.trim() || null,
           merchant: merchant.trim() || null,
-          category: category || null,
+          category_id: categoryId || null,
           transaction_date: transactionDate,
         }),
       });
@@ -134,12 +218,37 @@ export default function EditTransactionPage() {
       }
 
       router.push("/transactions");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
   };
+
+  const handleConvertToTransfer = async () => {
+    if (!selectedMatchId) return;
+    setConverting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/transactions/convert-to-transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transaction_id: id,
+          other_transaction_id: selectedMatchId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Convert failed");
+      router.push("/transactions");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Convert to transfer failed");
+    } finally {
+      setConverting(false);
+    }
+  };
+
+  const isTransfer = transaction?.transaction_type === "transfer";
 
   if (loading) {
     return (
@@ -271,22 +380,17 @@ export default function EditTransactionPage() {
             </div>
 
             <div>
-              <label htmlFor="category" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
                 Category
               </label>
-              <select
-                id="category"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="">Select a category (optional)</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.name}>
-                    {cat.name}
-                  </option>
-                ))}
-              </select>
+              <AutocompleteDropdown
+                items={categories}
+                value={categoryId}
+                onChange={(id) => setCategoryId(id)}
+                onCreateNew={handleCreateCategory}
+                placeholder="Select or create category (optional)"
+                className="mt-1"
+              />
             </div>
 
             <div>
@@ -302,6 +406,95 @@ export default function EditTransactionPage() {
                 required
               />
             </div>
+
+            {!isTransfer && (
+              <div className="border-t pt-6 space-y-4">
+                <h3 className="text-sm font-medium text-gray-900">Convert to transfer</h3>
+                <p className="text-sm text-gray-600">
+                  Match this transaction with one in another account (e.g. +10 here and −10 there) to mark both as a transfer.
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Other account</label>
+                  <select
+                    value={convertOtherAccountId}
+                    onChange={(e) => {
+                      setConvertOtherAccountId(e.target.value);
+                      setSelectedMatchId("");
+                    }}
+                    className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  >
+                    <option value="">Select account</option>
+                    {paymentMethods
+                      .filter((pm) => pm.id !== transaction.payment_method_id)
+                      .map((pm) => (
+                        <option key={pm.id} value={pm.id}>
+                          {pm.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {convertOtherAccountId && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Matching transaction (same amount, opposite sign)
+                    </label>
+                    {loadingMatches ? (
+                      <p className="text-sm text-gray-500">Loading…</p>
+                    ) : matchableTransactions.length === 0 ? (
+                      <p className="text-sm text-gray-500">
+                        No matching transactions in that account. Need a ±{Math.abs(transaction.amount).toFixed(2)} with opposite sign.
+                      </p>
+                    ) : (
+                      <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
+                        {matchableTransactions.map((tx) => (
+                          <label
+                            key={tx.id}
+                            className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                          >
+                            <input
+                              type="radio"
+                              name="convert-match"
+                              checked={selectedMatchId === tx.id}
+                              onChange={() => setSelectedMatchId(tx.id)}
+                              className="rounded-full"
+                            />
+                            <span className="text-sm font-medium tabular-nums">
+                              {tx.amount >= 0 ? "+" : ""}{tx.amount.toFixed(2)}
+                            </span>
+                            <span className="text-sm text-gray-600">
+                              {tx.transaction_date}
+                            </span>
+                            <span className="text-sm text-gray-700 truncate flex-1">
+                              {tx.description || "—"}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {selectedMatchId && (
+                  <button
+                    type="button"
+                    onClick={handleConvertToTransfer}
+                    disabled={converting}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                  >
+                    {converting ? "Converting…" : "Convert to transfer"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {isTransfer && (
+              <div className="border-t pt-6">
+                <p className="text-sm text-gray-600">
+                  This is a transfer. From → To:{" "}
+                  {paymentMethods.find((p) => p.id === transaction.transfer_from_id)?.name ?? "—"} →{" "}
+                  {paymentMethods.find((p) => p.id === transaction.transfer_to_id)?.name ?? "—"}
+                </p>
+              </div>
+            )}
 
             <div className="flex justify-end space-x-3">
               <Link

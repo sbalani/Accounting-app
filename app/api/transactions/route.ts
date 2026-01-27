@@ -75,6 +75,29 @@ export async function GET(request: Request) {
       console.error("Error fetching workspace:", workspaceError);
     }
 
+    let openingBalance: number | null = null;
+    if (paymentMethodId) {
+      const { data: pm } = await supabase
+        .from("payment_methods")
+        .select("initial_balance")
+        .eq("id", paymentMethodId)
+        .eq("workspace_id", workspaceId)
+        .maybeSingle();
+      const initial = pm?.initial_balance != null ? Number(pm.initial_balance) : 0;
+      if (startDate) {
+        const { data: prior } = await supabase
+          .from("transactions")
+          .select("amount")
+          .eq("workspace_id", workspaceId)
+          .eq("payment_method_id", paymentMethodId)
+          .lt("transaction_date", startDate);
+        const sumPrior = (prior || []).reduce((s, t) => s + Number(t.amount), 0);
+        openingBalance = initial + sumPrior;
+      } else {
+        openingBalance = initial;
+      }
+    }
+
     // Fetch related data for all transactions
     const transactionsWithRelations = await Promise.all(
       (transactions || []).map(async (tx: any) => {
@@ -133,10 +156,12 @@ export async function GET(request: Request) {
       })
     );
 
-    return NextResponse.json({
+    const res: { transactions: typeof transactionsWithRelations; primaryCurrency: string; openingBalance?: number } = {
       transactions: transactionsWithRelations,
       primaryCurrency: workspace?.primary_currency || "USD",
-    });
+    };
+    if (openingBalance != null) res.openingBalance = openingBalance;
+    return NextResponse.json(res);
   } catch (error: any) {
     console.error("Unexpected error in GET /api/transactions:", error);
     return NextResponse.json({ 

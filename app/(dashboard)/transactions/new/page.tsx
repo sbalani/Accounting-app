@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import DuplicateDetection from "@/components/DuplicateDetection";
+import AutocompleteDropdown from "@/components/AutocompleteDropdown";
 
 interface PaymentMethod {
   id: string;
@@ -14,7 +15,8 @@ interface PaymentMethod {
 interface Category {
   id: string;
   name: string;
-  is_default: boolean;
+  color?: string;
+  is_default?: boolean;
 }
 
 export default function NewTransactionPage() {
@@ -25,7 +27,7 @@ export default function NewTransactionPage() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [merchant, setMerchant] = useState("");
-  const [category, setCategory] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [transactionDate, setTransactionDate] = useState(
     new Date().toISOString().split("T")[0]
   );
@@ -53,7 +55,7 @@ export default function NewTransactionPage() {
     }
   };
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const response = await fetch("/api/categories");
       if (response.ok) {
@@ -63,7 +65,31 @@ export default function NewTransactionPage() {
     } catch (err) {
       console.error("Error fetching categories:", err);
     }
-  };
+  }, []);
+
+  const handleCreateCategory = useCallback(
+    async (name: string): Promise<Category | null> => {
+      try {
+        const response = await fetch("/api/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim() }),
+        });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Failed to create category");
+        }
+        const data = await response.json();
+        const newCat = data.category;
+        setCategories((prev) => [...prev, newCat]);
+        return newCat;
+      } catch (err) {
+        console.error("Error creating category:", err);
+        return null;
+      }
+    },
+    []
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,7 +114,7 @@ export default function NewTransactionPage() {
           amount: finalAmount,
           description: description.trim() || null,
           merchant: merchant.trim() || null,
-          category: category || null,
+          category_id: categoryId || null,
           transaction_date: transactionDate,
           source: "manual",
         }),
@@ -239,22 +265,17 @@ export default function NewTransactionPage() {
             </div>
 
             <div>
-              <label htmlFor="category" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
                 Category
               </label>
-              <select
-                id="category"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="">Select a category (optional)</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.name}>
-                    {cat.name}
-                  </option>
-                ))}
-              </select>
+              <AutocompleteDropdown
+                items={categories}
+                value={categoryId}
+                onChange={(id) => setCategoryId(id)}
+                onCreateNew={handleCreateCategory}
+                placeholder="Select or create category (optional)"
+                className="mt-1"
+              />
             </div>
 
             <div>
