@@ -129,6 +129,7 @@ export async function PATCH(
     currency,
     exchange_rate,
     subscription_id,
+    tag_ids,
   } = await request.json();
 
   const updateData: any = {};
@@ -303,7 +304,6 @@ export async function PATCH(
     updateData.exchange_rate = exchangeRate;
     updateData.amount = convertedAmount; // Store converted amount in primary currency
   }
-
   // Update the transaction
   const { error: updateError } = await supabase
     .from("transactions")
@@ -314,6 +314,90 @@ export async function PATCH(
   if (updateError) {
     console.error("Error updating transaction:", updateError);
     return NextResponse.json({ error: updateError.message || "Failed to update transaction" }, { status: 500 });
+  }
+
+  // Handle tag assignments (many-to-many) if tag_ids is provided
+  if (Array.isArray(tag_ids)) {
+    // First, fetch existing assignments
+    const { data: existingAssignments, error: assignmentsError } = await supabase
+      .from("transaction_tag_assignments")
+      .select("id, tag_id")
+      .eq("transaction_id", params.id);
+
+    if (assignmentsError) {
+      console.error("Error fetching tag assignments:", assignmentsError);
+      return NextResponse.json(
+        { error: assignmentsError.message || "Failed to update tags" },
+        { status: 500 }
+      );
+    }
+
+    const existingTagIds = new Set(
+      (existingAssignments || []).map((a: any) => a.tag_id)
+    );
+    const nextTagIds = new Set<string>(tag_ids);
+
+    const toAdd = Array.from(nextTagIds).filter((id) => !existingTagIds.has(id));
+    const toRemoveIds = (existingAssignments || [])
+      .filter((a: any) => !nextTagIds.has(a.tag_id))
+      .map((a: any) => a.id);
+
+    if (toAdd.length > 0) {
+      // Validate that all tags belong to the current workspace (defense-in-depth)
+      const { data: tagsToAdd, error: tagsValidationError } = await supabase
+        .from("transaction_tags")
+        .select("id, workspace_id")
+        .in("id", toAdd)
+        .eq("workspace_id", workspaceId);
+
+      if (tagsValidationError) {
+        console.error("Error validating tags:", tagsValidationError);
+        return NextResponse.json(
+          { error: tagsValidationError.message || "Failed to validate tags" },
+          { status: 500 }
+        );
+      }
+
+      // Check if all requested tags were found and belong to the workspace
+      const validTagIds = new Set((tagsToAdd || []).map((t: any) => t.id));
+      const invalidTagIds = toAdd.filter((id) => !validTagIds.has(id));
+
+      if (invalidTagIds.length > 0) {
+        return NextResponse.json(
+          { error: `One or more tags do not exist or do not belong to this workspace: ${invalidTagIds.join(", ")}` },
+          { status: 400 }
+        );
+      }
+
+      const insertRows = toAdd.map((tagId) => ({
+        transaction_id: params.id,
+        tag_id: tagId,
+      }));
+      const { error: insertError } = await supabase
+        .from("transaction_tag_assignments")
+        .insert(insertRows);
+      if (insertError) {
+        console.error("Error adding tag assignments:", insertError);
+        return NextResponse.json(
+          { error: insertError.message || "Failed to add tags" },
+          { status: 500 }
+        );
+      }
+    }
+
+    if (toRemoveIds.length > 0) {
+      const { error: deleteError } = await supabase
+        .from("transaction_tag_assignments")
+        .delete()
+        .in("id", toRemoveIds);
+      if (deleteError) {
+        console.error("Error removing tag assignments:", deleteError);
+        return NextResponse.json(
+          { error: deleteError.message || "Failed to remove tags" },
+          { status: 500 }
+        );
+      }
+    }
   }
 
   // Fetch the updated transaction (without payment_methods to avoid foreign key ambiguity)

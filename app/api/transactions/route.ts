@@ -19,7 +19,19 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from("transactions")
-    .select("*")
+    .select(
+      `
+      *,
+      transaction_tag_assignments:transaction_tag_assignments (
+        tag:transaction_tags (
+          id,
+          name,
+          color,
+          exclude_from_analytics
+        )
+      )
+    `
+    )
     .eq("workspace_id", workspaceId)
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -104,12 +116,19 @@ export async function GET(request: Request) {
           }
         }
 
+        // Normalize tags array for frontend
+        const tags =
+          (tx.transaction_tag_assignments || [])
+            .map((tta: any) => tta.tag)
+            .filter(Boolean) || [];
+
         return {
           ...tx,
           category: tx.category || null,
           merchant: tx.merchant || null,
           category_id: tx.category_id || null,
           merchant_id: tx.merchant_id || null,
+          tags,
         };
       })
     );

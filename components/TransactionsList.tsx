@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils/currency";
 import { getDatePresetRange, getDatePresetLabel, type DatePreset } from "@/lib/utils/date-presets";
@@ -39,6 +39,13 @@ interface Merchant {
   is_default?: boolean;
 }
 
+interface Tag {
+  id: string;
+  name: string;
+  color?: string | null;
+  exclude_from_analytics?: boolean;
+}
+
 export default function TransactionsList() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,6 +63,11 @@ export default function TransactionsList() {
   const [subscriptionSuggestions, setSubscriptionSuggestions] = useState<Record<string, any>>({});
   const [editingDescription, setEditingDescription] = useState<string | null>(null);
   const [descriptionValue, setDescriptionValue] = useState<string>("");
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [transactionTags, setTransactionTags] = useState<Record<string, Tag[]>>({});
+  const [openTagPickerFor, setOpenTagPickerFor] = useState<string | null>(null);
+  const originalDescriptionRef = useRef<string>("");
+  const isCancelingRef = useRef<boolean>(false);
 
   const fetchPaymentMethods = useCallback(async () => {
     try {
@@ -90,6 +102,18 @@ export default function TransactionsList() {
       }
     } catch (err) {
       console.error("Error fetching merchants:", err);
+    }
+  }, []);
+
+  const fetchTags = useCallback(async () => {
+    try {
+      const response = await fetch("/api/tags");
+      if (response.ok) {
+        const data = await response.json();
+        setTags(data.tags || []);
+      }
+    } catch (err) {
+      console.error("Error fetching tags:", err);
     }
   }, []);
 
@@ -131,6 +155,17 @@ export default function TransactionsList() {
       }
       const data = await response.json();
       setTransactions(data.transactions || []);
+      // Map tags per transaction for quick lookup
+      if (data.transactions) {
+        const tagMap: Record<string, Tag[]> = {};
+        for (const tx of data.transactions) {
+          const txTags = (tx.tags || []) as Tag[];
+          if (txTags.length > 0) {
+            tagMap[tx.id] = txTags;
+          }
+        }
+        setTransactionTags(tagMap);
+      }
       setPrimaryCurrency(data.primaryCurrency || "USD");
     } catch (err: any) {
       setError(err.message);
@@ -143,7 +178,8 @@ export default function TransactionsList() {
     fetchPaymentMethods();
     fetchCategories();
     fetchMerchants();
-  }, [fetchPaymentMethods, fetchCategories, fetchMerchants]);
+    fetchTags();
+  }, [fetchPaymentMethods, fetchCategories, fetchMerchants, fetchTags]);
 
   useEffect(() => {
     fetchTransactions();
@@ -275,15 +311,24 @@ export default function TransactionsList() {
 
   const startEditingDescription = (transactionId: string, currentDescription: string | null) => {
     setEditingDescription(transactionId);
-    setDescriptionValue(currentDescription || "");
+    const originalValue = currentDescription || "";
+    originalDescriptionRef.current = originalValue;
+    setDescriptionValue(originalValue);
+    isCancelingRef.current = false;
   };
 
   const cancelEditingDescription = () => {
+    isCancelingRef.current = true;
     setEditingDescription(null);
-    setDescriptionValue("");
+    setDescriptionValue(originalDescriptionRef.current);
   };
 
   const saveDescription = (transactionId: string) => {
+    // Don't save if we're canceling (Escape was pressed)
+    if (isCancelingRef.current) {
+      isCancelingRef.current = false;
+      return;
+    }
     handleDescriptionChange(transactionId, descriptionValue);
   };
 
@@ -412,6 +457,41 @@ export default function TransactionsList() {
       return () => clearTimeout(timeoutId);
     }
   }, [transactions, fetchSubscriptionSuggestions]);
+
+  const toggleTagForTransaction = async (transactionId: string, tag: Tag) => {
+    setUpdatingTransaction(transactionId);
+    try {
+      const currentTags = transactionTags[transactionId] || [];
+      const hasTag = currentTags.some((t) => t.id === tag.id);
+      const nextTags = hasTag
+        ? currentTags.filter((t) => t.id !== tag.id)
+        : [...currentTags, tag];
+
+      const tagIds = nextTags.map((t) => t.id);
+
+      const response = await fetch(`/api/transactions/${transactionId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ tag_ids: tagIds }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to update tags");
+      }
+
+      setTransactionTags((prev) => ({
+        ...prev,
+        [transactionId]: nextTags,
+      }));
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUpdatingTransaction(null);
+    }
+  };
 
 
   if (loading) {
@@ -562,6 +642,9 @@ export default function TransactionsList() {
                   Merchant
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Tags
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Payment Method
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -591,6 +674,11 @@ export default function TransactionsList() {
                               if (e.key === "Enter") {
                                 e.currentTarget.blur();
                               } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                // Set cancel flag BEFORE calling cancelEditingDescription
+                                // This ensures onBlur (if it fires) will skip saving
+                                isCancelingRef.current = true;
                                 cancelEditingDescription();
                               }
                             }}
@@ -646,6 +734,84 @@ export default function TransactionsList() {
                       className="min-w-[150px]"
                       disabled={updatingTransaction === transaction.id}
                     />
+                  </td>
+                  <td className="px-6 py-4 text-sm">
+                    <div className="flex flex-wrap items-center gap-1">
+                      {(transactionTags[transaction.id] || []).map((tag) => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() => toggleTagForTransaction(transaction.id, tag)}
+                          className="px-2 py-0.5 rounded-full text-xs font-medium border border-transparent"
+                          style={{
+                            backgroundColor: tag.color || "#EEF2FF",
+                            color: "#111827",
+                          }}
+                          title={tag.exclude_from_analytics ? "Excluded from main analytics" : undefined}
+                          disabled={updatingTransaction === transaction.id}
+                        >
+                          {tag.name}
+                        </button>
+                      ))}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setOpenTagPickerFor(
+                              openTagPickerFor === transaction.id ? null : transaction.id
+                            )
+                          }
+                          className="px-2 py-0.5 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800"
+                          disabled={updatingTransaction === transaction.id}
+                        >
+                          + Tag
+                        </button>
+                        {openTagPickerFor === transaction.id && (
+                          <div className="absolute z-10 mt-1 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+                            <div className="max-h-64 overflow-y-auto py-1">
+                              {tags.length === 0 ? (
+                                <div className="px-3 py-2 text-xs text-gray-500">
+                                  No tags yet. Create some on the Tag Analytics page.
+                                </div>
+                              ) : (
+                                tags.map((tag) => {
+                                  const selected =
+                                    (transactionTags[transaction.id] || []).some(
+                                      (t) => t.id === tag.id
+                                    );
+                                  return (
+                                    <button
+                                      key={tag.id}
+                                      type="button"
+                                      onClick={() => toggleTagForTransaction(transaction.id, tag)}
+                                      className={`w-full flex items-center justify-between px-3 py-1.5 text-xs ${
+                                        selected
+                                          ? "bg-indigo-50 text-indigo-700"
+                                          : "text-gray-700 hover:bg-gray-50"
+                                      }`}
+                                      disabled={updatingTransaction === transaction.id}
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <span
+                                          className="inline-block w-2 h-2 rounded-full"
+                                          style={{ backgroundColor: tag.color || "#6366F1" }}
+                                        />
+                                        {tag.name}
+                                      </span>
+                                      {tag.exclude_from_analytics && (
+                                        <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                                          Excluded
+                                        </span>
+                                      )}
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {transaction.payment_methods?.name || "-"}
