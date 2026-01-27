@@ -359,7 +359,7 @@ export default function CategoriesPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value: number) => formatAmount(value)}
+                    formatter={(value) => value != null ? formatAmount(value) : ''}
                     contentStyle={{
                       borderRadius: "8px",
                       border: "1px solid #e5e7eb",
