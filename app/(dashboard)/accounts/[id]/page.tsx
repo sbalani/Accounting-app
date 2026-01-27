@@ -1,102 +1,75 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
-import { SUPPORTED_CURRENCIES } from "@/lib/utils/currency";
 import { formatCurrency } from "@/lib/utils/currency";
+import TransactionsList from "@/components/TransactionsList";
 
 interface PaymentMethod {
   id: string;
   name: string;
   type: "cash" | "bank_account" | "credit_card";
   current_balance: number;
-  initial_balance: number;
   currency: string;
-  created_at: string;
+  bank_account_number?: string | null;
 }
 
-export default function EditPaymentMethodPage() {
-  const router = useRouter();
+function getTypeLabel(type: string) {
+  switch (type) {
+    case "cash":
+      return "Cash";
+    case "bank_account":
+      return "Bank Account";
+    case "credit_card":
+      return "Credit Card";
+    default:
+      return type;
+  }
+}
+
+export default function AccountDetailPage() {
   const params = useParams();
   const id = params.id as string;
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
-  const [name, setName] = useState("");
-  const [type, setType] = useState<"cash" | "bank_account" | "credit_card">("bank_account");
-  const [currency, setCurrency] = useState<string>("USD");
   const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchPaymentMethod() {
+    async function fetchAccount() {
       try {
-        const response = await fetch(`/api/payment-methods/${id}`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch payment method");
+        const [pmRes, listRes] = await Promise.all([
+          fetch(`/api/payment-methods/${id}`),
+          fetch("/api/payment-methods"),
+        ]);
+        if (!pmRes.ok) {
+          throw new Error("Failed to fetch account");
         }
-        const data = await response.json();
+        const data = await pmRes.json();
         setPaymentMethod(data.paymentMethod);
-        setName(data.paymentMethod.name);
-        setType(data.paymentMethod.type);
-        setCurrency(data.paymentMethod.currency || "USD");
-        
-        // Get primary currency for display
-        const pmResponse = await fetch("/api/payment-methods");
-        if (pmResponse.ok) {
-          const pmData = await pmResponse.json();
-          setPrimaryCurrency(pmData.primaryCurrency || "USD");
+        if (listRes.ok) {
+          const listData = await listRes.json();
+          setPrimaryCurrency(listData.primaryCurrency || "USD");
         }
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to load account");
       } finally {
         setLoading(false);
       }
     }
 
     if (id) {
-      fetchPaymentMethod();
+      fetchAccount();
     }
   }, [id]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setSaving(true);
-
-    try {
-      const response = await fetch(`/api/payment-methods/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          type,
-          currency,
-        }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update payment method");
-      }
-
-      router.push("/accounts");
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   if (loading) {
     return (
-      <div className="max-w-2xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
-          <div className="text-center">Loading...</div>
+          <div className="text-center py-12">Loading account...</div>
         </div>
       </div>
     );
@@ -104,115 +77,84 @@ export default function EditPaymentMethodPage() {
 
   if (error || !paymentMethod) {
     return (
-      <div className="max-w-2xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-            {error || "Payment method not found"}
+            {error || "Account not found"}
           </div>
+          <Link href="/accounts" className="mt-4 inline-block text-blue-600 hover:text-blue-500 text-sm">
+            ← Back to Payment Methods
+          </Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto py-6 sm:px-6 lg:px-8">
+    <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
         <div className="mb-6">
-          <Link href="/accounts" className="text-blue-600 hover:text-blue-500 text-sm mb-4 inline-block">
+          <Link
+            href="/accounts"
+            className="text-blue-600 hover:text-blue-500 text-sm mb-4 inline-block"
+          >
             ← Back to Payment Methods
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900">Edit Payment Method</h1>
-        </div>
-
-        <div className="bg-white shadow rounded-lg p-6">
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-            <p className="text-sm text-gray-600 mb-2">Current Balance</p>
-            <p className="text-2xl font-bold text-gray-900">
-              {formatCurrency(paymentMethod.current_balance, paymentMethod.currency || "USD")}
-            </p>
-            {paymentMethod.currency !== primaryCurrency && (
-              <p className="text-sm text-gray-500 mt-1">
-                ({formatCurrency(paymentMethod.current_balance, primaryCurrency)} in {primaryCurrency})
-              </p>
-            )}
-          </div>
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                Name
-              </label>
-              <input
-                id="name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                required
-              />
+              <h1 className="text-3xl font-bold text-gray-900">{paymentMethod.name}</h1>
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                <span>{getTypeLabel(paymentMethod.type)}</span>
+                <span>·</span>
+                <span>{paymentMethod.currency}</span>
+                {paymentMethod.bank_account_number && (
+                  <>
+                    <span>·</span>
+                    <span className="font-mono text-gray-700">
+                      {paymentMethod.bank_account_number}
+                    </span>
+                  </>
+                )}
+              </div>
             </div>
-
-            <div>
-              <label htmlFor="type" className="block text-sm font-medium text-gray-700">
-                Type
-              </label>
-              <select
-                id="type"
-                value={type}
-                onChange={(e) => setType(e.target.value as any)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                required
-              >
-                <option value="cash">Cash</option>
-                <option value="bank_account">Bank Account</option>
-                <option value="credit_card">Credit Card</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="currency" className="block text-sm font-medium text-gray-700">
-                Currency
-              </label>
-              <select
-                id="currency"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                required
-              >
-                {SUPPORTED_CURRENCIES.map((curr) => (
-                  <option key={curr} value={curr}>
-                    {curr}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-sm text-gray-500">
-                Default currency for transactions in this account. This can be changed per transaction if needed.
-              </p>
-            </div>
-
-            <div className="flex justify-end space-x-3">
+            <div className="flex items-center gap-2">
               <Link
-                href="/accounts"
+                href={`/accounts/${id}/edit`}
                 className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
               >
-                Cancel
+                Edit account
               </Link>
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              <Link
+                href="/transactions/new"
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
               >
-                {saving ? "Saving..." : "Save Changes"}
-              </button>
+                Add transaction
+              </Link>
             </div>
-          </form>
+          </div>
+        </div>
+
+        <div className="mb-8 p-6 bg-white shadow rounded-lg">
+          <p className="text-sm text-gray-600 mb-1">Current balance</p>
+          <p
+            className={`text-2xl font-bold ${
+              paymentMethod.type === "credit_card" && paymentMethod.current_balance < 0
+                ? "text-red-600"
+                : "text-gray-900"
+            }`}
+          >
+            {formatCurrency(paymentMethod.current_balance, primaryCurrency)}
+          </p>
+          {paymentMethod.currency !== primaryCurrency && (
+            <p className="text-sm text-gray-500 mt-1">
+              ({formatCurrency(paymentMethod.current_balance, paymentMethod.currency)} in account currency)
+            </p>
+          )}
+        </div>
+
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">Transactions</h2>
+          <TransactionsList paymentMethodId={id} />
         </div>
       </div>
     </div>

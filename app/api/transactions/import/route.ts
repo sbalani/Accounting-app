@@ -68,25 +68,164 @@ export async function POST(request: Request) {
     );
   }
 
-  // Check for duplicates before importing
-  const importedTransactions = [];
-  const duplicateTransactions = [];
-  const statementMaxDate = transactions.reduce<string | null>((max, tx) => {
+  const toProcess = transactions.filter((tx: { excluded?: boolean }) => !tx.excluded);
+  const importedTransactions: Record<string, unknown>[] = [];
+  const duplicateTransactions: { duplicate_of: string }[] = [];
+  const statementMaxDate = toProcess.reduce<string | null>((max, tx) => {
     if (!tx?.transaction_date) return max;
-    if (!max || tx.transaction_date > max) {
-      return tx.transaction_date;
-    }
+    if (!max || tx.transaction_date > max) return tx.transaction_date;
     return max;
   }, null);
 
-  for (const transaction of transactions) {
+  type Tx = (typeof toProcess)[number];
+  const pairGroups = new Map<string, Tx[]>();
+  const standalone: Tx[] = [];
+  for (const tx of toProcess) {
+    const pid = tx.transfer_pair_id ?? "";
+    if (!pid) {
+      standalone.push(tx);
+      continue;
+    }
+    if (!pairGroups.has(pid)) pairGroups.set(pid, []);
+    pairGroups.get(pid)!.push(tx);
+  }
+  const pairs: [Tx, Tx][] = [];
+  for (const [, group] of pairGroups) {
+    if (group.length !== 2) {
+      standalone.push(...group);
+    } else {
+      const thisRow = group.find((t) => t.transfer_belongs_to === "this_account");
+      const otherRow = group.find((t) => t.transfer_belongs_to === "other_account");
+      if (thisRow && otherRow && otherRow.transfer_other_account_id) {
+        pairs.push([thisRow, otherRow]);
+      } else {
+        standalone.push(...group);
+      }
+    }
+  }
+
+  async function processPair(thisRow: Tx, otherRow: Tx) {
+    const otherId = otherRow.transfer_other_account_id!;
+    const baseAmount = Math.abs(parseFloat(String(thisRow.amount)));
+    if (Number.isNaN(baseAmount)) return;
+    const date = thisRow.transaction_date;
+    const desc = thisRow.description?.trim() || otherRow.description?.trim() || null;
+    const fromId = thisRow.amount >= 0 ? otherId : payment_method_id;
+    const toId = thisRow.amount >= 0 ? payment_method_id : otherId;
+
+    const { data: fromPM } = await supabase
+      .from("payment_methods")
+      .select("id, currency")
+      .eq("id", fromId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    const { data: toPM } = await supabase
+      .from("payment_methods")
+      .select("id, currency")
+      .eq("id", toId)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (!fromPM || !toPM) return;
+
+    const fromCurrency = fromPM.currency || "USD";
+    const toCurrency = toPM.currency || "USD";
+    let fromRate = 1,
+      toRate = 1;
+    let fromConverted = baseAmount,
+      toConverted = baseAmount;
+    if (fromCurrency !== primaryCurrency) {
+      try {
+        fromRate = await getExchangeRateForDate(fromCurrency, primaryCurrency, date);
+        fromConverted = convertAmount(baseAmount, fromRate);
+      } catch {
+        fromRate = 1;
+        fromConverted = baseAmount;
+      }
+    }
+    if (toCurrency !== primaryCurrency) {
+      try {
+        toRate = await getExchangeRateForDate(toCurrency, primaryCurrency, date);
+        toConverted = convertAmount(baseAmount, toRate);
+      } catch {
+        toRate = 1;
+        toConverted = baseAmount;
+      }
+    }
+
+    const { data: fromDup } = await supabase.rpc("find_duplicate_transactions", {
+      workspace_id_param: workspaceId,
+      amount_param: -fromConverted,
+      transaction_date_param: date,
+      payment_method_id_param: fromId,
+    });
+    const { data: toDup } = await supabase.rpc("find_duplicate_transactions", {
+      workspace_id_param: workspaceId,
+      amount_param: toConverted,
+      transaction_date_param: date,
+      payment_method_id_param: toId,
+    });
+    if ((fromDup && fromDup.length > 0) || (toDup && toDup.length > 0)) {
+      duplicateTransactions.push({
+        duplicate_of: ((fromDup?.[0] ?? toDup?.[0]) as { id: string }).id,
+      });
+      return;
+    }
+
+    const merchant = thisRow.merchant?.trim() || otherRow.merchant?.trim() || null;
+    const merchantId = thisRow.merchant_id || otherRow.merchant_id || null;
+    const category = thisRow.category?.trim() || otherRow.category?.trim() || null;
+    const source = thisRow.source || "csv";
+
+    importedTransactions.push(
+      {
+        workspace_id: workspaceId,
+        payment_method_id: fromId,
+        amount: -fromConverted,
+        base_amount: baseAmount,
+        currency: fromCurrency,
+        exchange_rate: fromRate,
+        description: desc,
+        merchant,
+        merchant_id: merchantId,
+        category,
+        transaction_date: date,
+        source,
+        transaction_type: "transfer",
+        transfer_from_id: fromId,
+        transfer_to_id: toId,
+        created_by: user.id,
+      },
+      {
+        workspace_id: workspaceId,
+        payment_method_id: toId,
+        amount: toConverted,
+        base_amount: baseAmount,
+        currency: toCurrency,
+        exchange_rate: toRate,
+        description: desc,
+        merchant,
+        merchant_id: merchantId,
+        category,
+        transaction_date: date,
+        source,
+        transaction_type: "transfer",
+        transfer_from_id: fromId,
+        transfer_to_id: toId,
+        created_by: user.id,
+      }
+    );
+  }
+
+  for (const [a, b] of pairs) {
+    await processPair(a, b);
+  }
+
+  for (const transaction of standalone) {
     const isTransfer = transaction.transaction_type === "transfer";
     const rawAmount = parseFloat(transaction.amount);
 
-    if (Number.isNaN(rawAmount)) {
-      continue;
-    }
-    
+    if (Number.isNaN(rawAmount)) continue;
+
     // For transfers, use transfer_from_id as the payment_method_id
     // For regular transactions, use the provided payment_method_id
     const sourcePaymentMethodId = isTransfer && transaction.transfer_from_id 
@@ -146,8 +285,7 @@ export async function POST(request: Request) {
 
     if (duplicates && duplicates.length > 0) {
       duplicateTransactions.push({
-        ...transaction,
-        duplicate_of: duplicates[0].id,
+        duplicate_of: (duplicates[0] as { id: string }).id,
       });
     } else {
       // Determine transaction type
@@ -158,7 +296,7 @@ export async function POST(request: Request) {
         transactionType = "income";
       }
 
-      const transactionData: any = {
+      const transactionData: Record<string, unknown> = {
         workspace_id: workspaceId,
         payment_method_id: sourcePaymentMethodId,
         amount: signedConvertedAmount, // Converted amount in primary currency
@@ -279,7 +417,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     imported: insertedCount,
     duplicates: duplicateTransactions.length,
-    total: transactions.length,
+    total: toProcess.length,
   });
 }
 

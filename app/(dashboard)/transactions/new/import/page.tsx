@@ -668,6 +668,93 @@ export default function StatementImportPage() {
     }
   };
 
+  const handleLinkRows = (i: number, j: number) => {
+    const pairId = `pair-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const a = parsedTransactions[i];
+    const b = parsedTransactions[j];
+    const aNeg = a.amount < 0;
+    const bNeg = b.amount < 0;
+    let iSide: "this_account" | "other_account";
+    let jSide: "this_account" | "other_account";
+    if (aNeg && !bNeg) {
+      iSide = "other_account";
+      jSide = "this_account";
+    } else if (!aNeg && bNeg) {
+      iSide = "this_account";
+      jSide = "other_account";
+    } else {
+      iSide = "this_account";
+      jSide = "other_account";
+    }
+    setParsedTransactions((prev) =>
+      prev.map((t, idx) => {
+        if (idx === i)
+          return {
+            ...t,
+            transfer_pair_id: pairId,
+            transfer_belongs_to: iSide,
+            transaction_type: "transfer" as const,
+            transfer_from_id: null,
+            transfer_to_id: null,
+          };
+        if (idx === j)
+          return {
+            ...t,
+            transfer_pair_id: pairId,
+            transfer_belongs_to: jSide,
+            transaction_type: "transfer" as const,
+            transfer_from_id: null,
+            transfer_to_id: null,
+          };
+        return t;
+      })
+    );
+  };
+
+  const handleUnlinkPair = (pairId: string) => {
+    setParsedTransactions((prev) =>
+      prev.map((t) =>
+        t.transfer_pair_id === pairId
+          ? {
+              ...t,
+              transfer_pair_id: null,
+              transfer_belongs_to: null,
+              transfer_other_account_id: null,
+              transaction_type: (t.amount >= 0 ? "income" : "expense") as "income" | "expense",
+              transfer_from_id: null,
+              transfer_to_id: null,
+            }
+          : t
+      )
+    );
+  };
+
+  const handlePairAssignment = (
+    pairId: string,
+    thisRowIndex: number,
+    otherRowIndex: number,
+    otherAccountId: string | null
+  ) => {
+    setParsedTransactions((prev) =>
+      prev.map((t, i) => {
+        if (t.transfer_pair_id !== pairId) return t;
+        if (i === thisRowIndex)
+          return {
+            ...t,
+            transfer_belongs_to: "this_account" as const,
+            transfer_other_account_id: null,
+          };
+        if (i === otherRowIndex)
+          return {
+            ...t,
+            transfer_belongs_to: "other_account" as const,
+            transfer_other_account_id: otherAccountId,
+          };
+        return t;
+      })
+    );
+  };
+
   const handleImport = async () => {
     if (!paymentMethodId || parsedTransactions.length === 0) {
       setError("Please select a payment method and ensure transactions are parsed");
@@ -698,14 +785,14 @@ export default function StatementImportPage() {
         });
       }
 
-      // Import transactions
+      const toImport = parsedTransactions.filter((t) => !t.excluded);
       const response = await fetch("/api/transactions/import", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          transactions: parsedTransactions,
+          transactions: toImport,
           payment_method_id: paymentMethodId,
         }),
       });
@@ -1666,15 +1753,23 @@ export default function StatementImportPage() {
                 <div className="bg-gray-50 px-4 py-3 border-b">
                   <h2 className="font-semibold">
                     Found {parsedTransactions.length} transactions
+                    {parsedTransactions.some((t) => t.excluded) && (
+                      <span className="ml-2 font-normal text-gray-600">
+                        ({parsedTransactions.filter((t) => !t.excluded).length} to import)
+                      </span>
+                    )}
                   </h2>
                   <p className="text-sm text-gray-600 mt-1">
-                    Review and edit transactions below. Mark transfers and select accounts. Duplicates will be automatically skipped during import.
+                    Review and edit transactions below. Exclude rows you don&apos;t want to import. Link two rows as a transfer pair (e.g. Revolut inter-account) and assign which belongs to this account vs another. Duplicates will be automatically skipped during import.
                   </p>
                 </div>
                 <div className="max-h-96 overflow-y-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
+                          Exclude
+                        </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Date
                         </th>
@@ -1693,6 +1788,9 @@ export default function StatementImportPage() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Transfer
                         </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Link pair
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -1701,6 +1799,7 @@ export default function StatementImportPage() {
                           key={index}
                           transaction={transaction}
                           index={index}
+                          allTransactions={parsedTransactions}
                           paymentMethods={paymentMethods}
                           paymentMethodId={paymentMethodId}
                           onUpdate={(updated) => {
@@ -1708,8 +1807,12 @@ export default function StatementImportPage() {
                               prev.map((t, i) => (i === index ? updated : t))
                             );
                           }}
+                          onLinkRows={handleLinkRows}
+                          onUnlinkPair={handleUnlinkPair}
+                          onPairAssignment={handlePairAssignment}
                           onCreatePaymentMethod={() => setShowPaymentMethodForm(true)}
                           primaryCurrency={primaryCurrency}
+                          importing={importing}
                         />
                       ))}
                     </tbody>
@@ -1759,10 +1862,12 @@ export default function StatementImportPage() {
                 </button>
                 <button
                   onClick={handleImport}
-                  disabled={importing || !paymentMethodId}
+                  disabled={importing || !paymentMethodId || parsedTransactions.filter((t) => !t.excluded).length === 0}
                   className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                 >
-                  {importing ? "Importing..." : `Import ${parsedTransactions.length} Transactions`}
+                  {importing
+                    ? "Importing..."
+                    : `Import ${parsedTransactions.filter((t) => !t.excluded).length} Transactions`}
                 </button>
               </div>
             </div>
@@ -1777,31 +1882,60 @@ export default function StatementImportPage() {
 function TransactionRow({
   transaction,
   index,
+  allTransactions,
   paymentMethods,
   paymentMethodId,
   onUpdate,
+  onLinkRows,
+  onUnlinkPair,
+  onPairAssignment,
   onCreatePaymentMethod,
   primaryCurrency,
+  importing,
 }: {
   transaction: ParsedTransaction;
   index: number;
+  allTransactions: ParsedTransaction[];
   paymentMethods: any[];
   paymentMethodId: string;
   onUpdate: (transaction: ParsedTransaction) => void;
+  onLinkRows: (i: number, j: number) => void;
+  onUnlinkPair: (pairId: string) => void;
+  onPairAssignment: (
+    pairId: string,
+    thisRowIndex: number,
+    otherRowIndex: number,
+    otherAccountId: string | null
+  ) => void;
   onCreatePaymentMethod: () => void;
   primaryCurrency: string;
+  importing: boolean;
 }) {
   const [isTransfer, setIsTransfer] = useState(transaction.transaction_type === "transfer");
   const [transferFrom, setTransferFrom] = useState(transaction.transfer_from_id || paymentMethodId);
   const [transferTo, setTransferTo] = useState(transaction.transfer_to_id || "");
 
+  const isPaired = !!transaction.transfer_pair_id;
+  const partnerIndex = isPaired
+    ? allTransactions.findIndex(
+        (t, i) => i !== index && t.transfer_pair_id === transaction.transfer_pair_id
+      )
+    : -1;
+  const partner = partnerIndex >= 0 ? allTransactions[partnerIndex] : null;
+
   useEffect(() => {
+    if (isPaired) return;
     setIsTransfer(transaction.transaction_type === "transfer");
     setTransferFrom(transaction.transfer_from_id || paymentMethodId);
     setTransferTo(transaction.transfer_to_id || "");
-  }, [transaction, paymentMethodId]);
+  }, [transaction, paymentMethodId, isPaired]);
+
+  const handleExcludeToggle = (checked: boolean) => {
+    onUpdate({ ...transaction, excluded: checked });
+  };
 
   const handleTransferToggle = (checked: boolean) => {
+    if (isPaired) return;
     setIsTransfer(checked);
     if (checked) {
       onUpdate({
@@ -1811,7 +1945,6 @@ function TransactionRow({
         transfer_to_id: transferTo || paymentMethodId,
       });
     } else {
-      // Determine type based on amount
       const type = transaction.amount >= 0 ? "income" : "expense";
       onUpdate({
         ...transaction,
@@ -1824,26 +1957,64 @@ function TransactionRow({
 
   const handleTransferFromChange = (value: string) => {
     setTransferFrom(value);
-    onUpdate({
-      ...transaction,
-      transfer_from_id: value,
-    });
+    onUpdate({ ...transaction, transfer_from_id: value });
   };
 
   const handleTransferToChange = (value: string) => {
     setTransferTo(value);
-    onUpdate({
-      ...transaction,
-      transfer_to_id: value,
-    });
+    onUpdate({ ...transaction, transfer_to_id: value });
   };
 
-  const formatAmount = (amount: number) => {
-    return formatCurrency(amount, primaryCurrency);
+  const handleBelongsToggle = (belongs: "this_account" | "other_account") => {
+    if (!transaction.transfer_pair_id || partnerIndex < 0) return;
+    const otherId =
+      belongs === "other_account"
+        ? (transaction.transfer_other_account_id || null)
+        : partner?.transfer_other_account_id || null;
+    onPairAssignment(
+      transaction.transfer_pair_id,
+      belongs === "this_account" ? index : partnerIndex,
+      belongs === "other_account" ? index : partnerIndex,
+      otherId
+    );
   };
+
+  const handleOtherAccountChange = (value: string) => {
+    onUpdate({ ...transaction, transfer_other_account_id: value || null });
+  };
+
+  const formatAmount = (amount: number) => formatCurrency(amount, primaryCurrency);
+
+  const linkableIndexes = allTransactions
+    .map((t, i) => ({ t, i }))
+    .filter(
+      ({ t, i }) =>
+        i !== index &&
+        !t.excluded &&
+        !t.transfer_pair_id
+    )
+    .map(({ i }) => i);
+
+  const isTransferLike = isPaired || isTransfer;
+  const rowClass = [
+    transaction.excluded ? "opacity-50 bg-gray-50" : "",
+    isTransferLike ? "bg-blue-50" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <tr className={isTransfer ? "bg-blue-50" : ""}>
+    <tr className={rowClass || undefined}>
+      <td className="px-4 py-3 text-center">
+        <input
+          type="checkbox"
+          checked={!!transaction.excluded}
+          onChange={(e) => handleExcludeToggle(e.target.checked)}
+          disabled={importing}
+          title="Exclude from import"
+          className="rounded border-gray-300"
+        />
+      </td>
       <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
         {transaction.transaction_date}
       </td>
@@ -1855,17 +2026,27 @@ function TransactionRow({
       </td>
       <td
         className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${
-          isTransfer ? "text-blue-600" : (transaction.transaction_type === "income" || (transaction.transaction_type === undefined && transaction.amount > 0)) ? "text-green-600" : "text-red-600"
+          isTransferLike
+            ? "text-blue-600"
+            : (transaction.transaction_type === "income" ||
+              (transaction.transaction_type === undefined && transaction.amount > 0))
+              ? "text-green-600"
+              : "text-red-600"
         }`}
       >
         {formatAmount(Math.abs(transaction.amount))}
       </td>
       <td className="px-4 py-3 text-sm">
-        {isTransfer ? (
+        {isPaired ? (
+          <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
+            Transfer (pair)
+          </span>
+        ) : isTransfer ? (
           <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded">
             Transfer
           </span>
-        ) : transaction.transaction_type === "income" || (transaction.transaction_type === undefined && transaction.amount > 0) ? (
+        ) : transaction.transaction_type === "income" ||
+          (transaction.transaction_type === undefined && transaction.amount > 0) ? (
           <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">
             Income
           </span>
@@ -1876,60 +2057,166 @@ function TransactionRow({
         )}
       </td>
       <td className="px-4 py-3 text-sm">
-        <div className="space-y-2">
-          <label className="flex items-center">
-            <input
-              type="checkbox"
-              checked={isTransfer}
-              onChange={(e) => handleTransferToggle(e.target.checked)}
-              className="mr-1"
-            />
-            <span className="text-xs text-gray-700">Mark as Transfer</span>
-          </label>
-          {isTransfer && (
-            <div className="space-y-1 ml-5">
-              <div>
-                <label className="block text-xs text-gray-600 mb-0.5">From:</label>
-                <select
-                  value={transferFrom}
-                  onChange={(e) => handleTransferFromChange(e.target.value)}
-                  className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                >
-                  {paymentMethods.map((pm) => (
-                    <option key={pm.id} value={pm.id}>
-                      {pm.name}
-                    </option>
-                  ))}
-                </select>
+        {isPaired ? (
+          <div className="space-y-1.5 text-xs">
+            <p className="text-gray-600">
+              Pair with row {partnerIndex + 1}
+              {partner && (
+                <span className="ml-1 text-gray-500">
+                  ({formatAmount(Math.abs(partner.amount))} — {partner.description || "—"})
+                </span>
+              )}
+            </p>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name={`pair-${transaction.transfer_pair_id}-${index}`}
+                    checked={transaction.transfer_belongs_to === "this_account"}
+                    onChange={() => handleBelongsToggle("this_account")}
+                    disabled={importing}
+                    className="mr-1"
+                  />
+                  <span>This account</span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name={`pair-${transaction.transfer_pair_id}-${index}`}
+                    checked={transaction.transfer_belongs_to === "other_account"}
+                    onChange={() => handleBelongsToggle("other_account")}
+                    disabled={importing}
+                    className="mr-1"
+                  />
+                  <span>Other:</span>
+                </label>
+                {transaction.transfer_belongs_to === "other_account" && (
+                  <div className="flex items-center gap-1">
+                    <select
+                      value={transaction.transfer_other_account_id || ""}
+                      onChange={(e) => handleOtherAccountChange(e.target.value)}
+                      disabled={importing}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded"
+                    >
+                      <option value="">Select account</option>
+                      {paymentMethods
+                        .filter((pm) => pm.id !== paymentMethodId)
+                        .map((pm) => (
+                          <option key={pm.id} value={pm.id}>
+                            {pm.name}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={onCreatePaymentMethod}
+                      className="text-xs text-blue-600 hover:text-blue-500 px-1"
+                      title="Create new account"
+                    >
+                      +
+                    </button>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="block text-xs text-gray-600 mb-0.5">To:</label>
-                <div className="flex items-center space-x-1">
+            </div>
+            <button
+              type="button"
+              onClick={() => transaction.transfer_pair_id && onUnlinkPair(transaction.transfer_pair_id)}
+              disabled={importing}
+              className="text-red-600 hover:text-red-700 text-xs"
+            >
+              Unlink
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={isTransfer}
+                onChange={(e) => handleTransferToggle(e.target.checked)}
+                disabled={importing}
+                className="mr-1"
+              />
+              <span className="text-xs text-gray-700">Mark as Transfer</span>
+            </label>
+            {isTransfer && (
+              <div className="space-y-1 ml-5">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-0.5">From:</label>
                   <select
-                    value={transferTo}
-                    onChange={(e) => handleTransferToChange(e.target.value)}
-                    className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    value={transferFrom}
+                    onChange={(e) => handleTransferFromChange(e.target.value)}
+                    disabled={importing}
+                    className="w-full text-xs px-2 py-1 border border-gray-300 rounded"
                   >
-                    <option value="">Select account</option>
                     {paymentMethods.map((pm) => (
                       <option key={pm.id} value={pm.id}>
                         {pm.name}
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={onCreatePaymentMethod}
-                    className="text-xs text-blue-600 hover:text-blue-500 px-1"
-                    title="Create new account"
-                  >
-                    +
-                  </button>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-0.5">To:</label>
+                  <div className="flex items-center space-x-1">
+                    <select
+                      value={transferTo}
+                      onChange={(e) => handleTransferToChange(e.target.value)}
+                      disabled={importing}
+                      className="flex-1 text-xs px-2 py-1 border border-gray-300 rounded"
+                    >
+                      <option value="">Select account</option>
+                      {paymentMethods.map((pm) => (
+                        <option key={pm.id} value={pm.id}>
+                          {pm.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={onCreatePaymentMethod}
+                      className="text-xs text-blue-600 hover:text-blue-500 px-1"
+                      title="Create new account"
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
+      </td>
+      <td className="px-4 py-3 text-sm">
+        {isPaired ? (
+          <span className="text-gray-500 text-xs">—</span>
+        ) : linkableIndexes.length > 0 ? (
+          <select
+            value=""
+            onChange={(e) => {
+              const j = parseInt(e.target.value, 10);
+              if (!Number.isNaN(j)) onLinkRows(index, j);
+              e.target.value = "";
+            }}
+            disabled={importing || !!transaction.excluded}
+            className="text-xs px-2 py-1 border border-gray-300 rounded"
+          >
+            <option value="">Link to row…</option>
+            {linkableIndexes.map((j) => {
+              const t = allTransactions[j];
+              return (
+                <option key={j} value={j}>
+                  Row {j + 1}: {t.transaction_date} {formatAmount(Math.abs(t.amount))} —{" "}
+                  {(t.description || "").slice(0, 30)}
+                </option>
+              );
+            })}
+          </select>
+        ) : (
+          <span className="text-gray-400 text-xs">—</span>
+        )}
       </td>
     </tr>
   );

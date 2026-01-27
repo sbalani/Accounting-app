@@ -10,6 +10,8 @@ interface PaymentMethod {
   type: "cash" | "bank_account" | "credit_card";
   current_balance: number;
   initial_balance: number;
+  currency?: string;
+  bank_account_number?: string | null;
   created_at: string;
 }
 
@@ -115,13 +117,26 @@ export default function PaymentMethodsList() {
         {paymentMethods.map((method) => (
           <div key={method.id} className="bg-white shadow rounded-lg p-6">
             <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">{method.name}</h3>
-                <p className="text-sm text-gray-500">{getTypeLabel(method.type)}</p>
-              </div>
-              <div className="flex space-x-2">
+              <div className="min-w-0 flex-1">
                 <Link
                   href={`/accounts/${method.id}`}
+                  className="text-lg font-semibold text-gray-900 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
+                >
+                  {method.name}
+                </Link>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-gray-500">
+                  <span>{getTypeLabel(method.type)}</span>
+                  {method.bank_account_number && (
+                    <>
+                      <span>·</span>
+                      <span className="font-mono text-gray-600">{method.bank_account_number}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex shrink-0 space-x-2 ml-2">
+                <Link
+                  href={`/accounts/${method.id}/edit`}
                   className="text-blue-600 hover:text-blue-500 text-sm"
                 >
                   Edit
@@ -134,7 +149,10 @@ export default function PaymentMethodsList() {
                 </button>
               </div>
             </div>
-            <div className="border-t pt-4">
+            <Link
+              href={`/accounts/${method.id}`}
+              className="block border-t pt-4 hover:bg-gray-50 -mx-6 px-6 py-4 mt-0 rounded-b-lg transition-colors"
+            >
               <p className="text-sm text-gray-500 mb-1">Current Balance</p>
               <p
                 className={`text-2xl font-bold ${
@@ -145,7 +163,7 @@ export default function PaymentMethodsList() {
               >
                 {formatCurrency(method.current_balance, primaryCurrency)}
               </p>
-            </div>
+            </Link>
           </div>
         ))}
       </div>

@@ -37,6 +37,14 @@ export interface ParsedTransaction {
   transaction_type?: "expense" | "income" | "transfer";
   transfer_from_id?: string | null;
   transfer_to_id?: string | null;
+  /** Exclude this row from import when set. */
+  excluded?: boolean;
+  /** Pair id shared by two rows that form a transfer pair. */
+  transfer_pair_id?: string | null;
+  /** Which side of the pair: this statement account or the other account. */
+  transfer_belongs_to?: "this_account" | "other_account" | null;
+  /** When transfer_belongs_to is other_account, the other account id. */
+  transfer_other_account_id?: string | null;
 }
 
 /**

@@ -38,9 +38,9 @@ export async function PATCH(
     return NextResponse.json({ error: "No workspace found" }, { status: 404 });
   }
 
-  const { name, type, csv_import_config, currency } = await request.json();
+  const { name, type, csv_import_config, currency, bank_account_number } = await request.json();
 
-  const updateData: any = {};
+  const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = name.trim();
   if (type !== undefined) {
     if (!["cash", "bank_account", "credit_card"].includes(type)) {
@@ -56,6 +56,11 @@ export async function PATCH(
   }
   if (currency !== undefined) {
     updateData.currency = currency;
+  }
+  if (bank_account_number !== undefined) {
+    updateData.bank_account_number = bank_account_number === null || String(bank_account_number).trim() === ""
+      ? null
+      : String(bank_account_number).trim();
   }
 
   const { data: paymentMethod, error } = await supabase

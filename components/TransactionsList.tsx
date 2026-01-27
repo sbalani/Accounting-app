@@ -46,7 +46,12 @@ interface Tag {
   exclude_from_analytics?: boolean;
 }
 
-export default function TransactionsList() {
+interface TransactionsListProps {
+  /** When set, scope the list to this account and hide the account filter. */
+  paymentMethodId?: string;
+}
+
+export default function TransactionsList({ paymentMethodId }: TransactionsListProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +64,6 @@ export default function TransactionsList() {
   const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
   const [categories, setCategories] = useState<Category[]>([]);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
-  const [updatingTransaction, setUpdatingTransaction] = useState<string | null>(null);
   const [subscriptionSuggestions, setSubscriptionSuggestions] = useState<Record<string, any>>({});
   const [editingDescription, setEditingDescription] = useState<string | null>(null);
   const [descriptionValue, setDescriptionValue] = useState<string>("");
@@ -68,6 +72,8 @@ export default function TransactionsList() {
   const [openTagPickerFor, setOpenTagPickerFor] = useState<string | null>(null);
   const originalDescriptionRef = useRef<string>("");
   const isCancelingRef = useRef<boolean>(false);
+  /** AbortControllers for in-flight PATCH requests, keyed by "field:transactionId". Cancel previous when user edits same field again. */
+  const pendingPatchRef = useRef<Record<string, AbortController>>({});
 
   const fetchPaymentMethods = useCallback(async () => {
     try {
@@ -121,9 +127,9 @@ export default function TransactionsList() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      
-      if (filterPaymentMethod) {
-        params.append("payment_method_id", filterPaymentMethod);
+      const effectivePaymentMethod = paymentMethodId || filterPaymentMethod;
+      if (effectivePaymentMethod) {
+        params.append("payment_method_id", effectivePaymentMethod);
       }
       
       if (transactionType) {
@@ -172,7 +178,7 @@ export default function TransactionsList() {
     } finally {
       setLoading(false);
     }
-  }, [filterPaymentMethod, datePreset, startDate, endDate, transactionType]);
+  }, [paymentMethodId, filterPaymentMethod, datePreset, startDate, endDate, transactionType]);
 
   useEffect(() => {
     fetchPaymentMethods();
@@ -194,6 +200,48 @@ export default function TransactionsList() {
     }
   }, [datePreset]);
 
+  /** Abort any in-flight PATCH for this key, create new controller, run fetch. On AbortError: no revert, no alert. */
+  const patchWithAbort = useCallback(
+    async (
+      key: string,
+      body: Record<string, unknown>,
+      opts: {
+        onSuccess?: (data: { transaction: Transaction }) => void;
+        onRevert: () => void;
+      }
+    ): Promise<void> => {
+      const prev = pendingPatchRef.current[key];
+      if (prev) {
+        prev.abort();
+        delete pendingPatchRef.current[key];
+      }
+      const ac = new AbortController();
+      pendingPatchRef.current[key] = ac;
+      try {
+        const [txId] = key.split(":").reverse();
+        const response = await fetch(`/api/transactions/${txId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: ac.signal,
+        });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Request failed");
+        }
+        const data = await response.json();
+        opts.onSuccess?.(data);
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        opts.onRevert();
+        alert(err instanceof Error ? err.message : "Update failed");
+      } finally {
+        delete pendingPatchRef.current[key];
+      }
+    },
+    []
+  );
+
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this transaction?")) {
       return;
@@ -209,105 +257,121 @@ export default function TransactionsList() {
         throw new Error(data.error || "Failed to delete transaction");
       }
 
-      setTransactions(transactions.filter((t) => t.id !== id));
-    } catch (err: any) {
-      alert(err.message);
+      setTransactions((prev) => prev.filter((t) => t.id !== id));
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Delete failed");
     }
   };
 
-  const handleCategoryChange = async (transactionId: string, categoryId: string | null) => {
-    setUpdatingTransaction(transactionId);
-    try {
-      const response = await fetch(`/api/transactions/${transactionId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ category_id: categoryId }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update category");
-      }
-
-      const data = await response.json();
-      setTransactions((prev) =>
-        prev.map((t) =>
+  const handleCategoryChange = useCallback(
+    (transactionId: string, categoryId: string | null, categoryName: string | null) => {
+      const key = `cat:${transactionId}`;
+      const prev = { category_id: null as string | null, category: null as string | null };
+      setTransactions((p) => {
+        const t = p.find((x) => x.id === transactionId);
+        if (t) {
+          prev.category_id = t.category_id;
+          prev.category = t.category;
+        }
+        return p.map((t) =>
           t.id === transactionId
-            ? { ...t, category_id: categoryId, category: data.transaction.category || null }
+            ? { ...t, category_id: categoryId, category: categoryName }
             : t
-        )
-      );
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setUpdatingTransaction(null);
-    }
-  };
-
-  const handleMerchantChange = async (transactionId: string, merchantId: string | null) => {
-    setUpdatingTransaction(transactionId);
-    try {
-      const response = await fetch(`/api/transactions/${transactionId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ merchant_id: merchantId }),
+        );
       });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update merchant");
-      }
-
-      const data = await response.json();
-      setTransactions((prev) =>
-        prev.map((t) =>
-          t.id === transactionId
-            ? { ...t, merchant_id: merchantId, merchant: data.transaction.merchant || null }
-            : t
-        )
-      );
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setUpdatingTransaction(null);
-    }
-  };
-
-  const handleDescriptionChange = async (transactionId: string, newDescription: string) => {
-    setUpdatingTransaction(transactionId);
-    try {
-      const response = await fetch(`/api/transactions/${transactionId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
+      patchWithAbort(key, { category_id: categoryId }, {
+        onSuccess: (d) => {
+          setTransactions((p) =>
+            p.map((t) =>
+              t.id === transactionId
+                ? { ...t, category_id: d.transaction.category_id ?? categoryId, category: d.transaction.category ?? categoryName }
+                : t
+            )
+          );
         },
-        body: JSON.stringify({ description: newDescription }),
+        onRevert: () => {
+          setTransactions((p) =>
+            p.map((t) =>
+              t.id === transactionId ? { ...t, category_id: prev.category_id, category: prev.category } : t
+            )
+          );
+        },
       });
+    },
+    [patchWithAbort]
+  );
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update description");
-      }
-
-      const data = await response.json();
-      setTransactions((prev) =>
-        prev.map((t) =>
+  const handleMerchantChange = useCallback(
+    (transactionId: string, merchantId: string | null, merchantName: string | null) => {
+      const key = `merch:${transactionId}`;
+      const prev = { merchant_id: null as string | null, merchant: null as string | null };
+      setTransactions((p) => {
+        const t = p.find((x) => x.id === transactionId);
+        if (t) {
+          prev.merchant_id = t.merchant_id;
+          prev.merchant = t.merchant;
+        }
+        return p.map((t) =>
           t.id === transactionId
-            ? { ...t, description: data.transaction.description || null }
+            ? { ...t, merchant_id: merchantId, merchant: merchantName }
             : t
-        )
-      );
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setUpdatingTransaction(null);
-      setEditingDescription(null);
-    }
-  };
+        );
+      });
+      patchWithAbort(key, { merchant_id: merchantId }, {
+        onSuccess: (d) => {
+          setTransactions((p) =>
+            p.map((t) =>
+              t.id === transactionId
+                ? { ...t, merchant_id: d.transaction.merchant_id ?? merchantId, merchant: d.transaction.merchant ?? merchantName }
+                : t
+            )
+          );
+        },
+        onRevert: () => {
+          setTransactions((p) =>
+            p.map((t) =>
+              t.id === transactionId ? { ...t, merchant_id: prev.merchant_id, merchant: prev.merchant } : t
+            )
+          );
+        },
+      });
+    },
+    [patchWithAbort]
+  );
+
+  const handleDescriptionChange = useCallback(
+    (transactionId: string, newDescription: string) => {
+      const key = `desc:${transactionId}`;
+      let previousDescription: string | null = null;
+      setTransactions((p) => {
+        const t = p.find((x) => x.id === transactionId);
+        if (t) previousDescription = t.description;
+        return p.map((t) =>
+          t.id === transactionId ? { ...t, description: newDescription || null } : t
+        );
+      });
+      const prev = previousDescription ?? null;
+      patchWithAbort(key, { description: newDescription || null }, {
+        onSuccess: (d) => {
+          setTransactions((p) =>
+            p.map((t) =>
+              t.id === transactionId
+                ? { ...t, description: (d.transaction.description ?? newDescription) ?? null }
+                : t
+            )
+          );
+        },
+        onRevert: () => {
+          setTransactions((p) =>
+            p.map((t) =>
+              t.id === transactionId ? { ...t, description: prev } : t
+            )
+          );
+        },
+      });
+    },
+    [patchWithAbort]
+  );
 
   const startEditingDescription = (transactionId: string, currentDescription: string | null) => {
     setEditingDescription(transactionId);
@@ -324,12 +388,13 @@ export default function TransactionsList() {
   };
 
   const saveDescription = (transactionId: string) => {
-    // Don't save if we're canceling (Escape was pressed)
     if (isCancelingRef.current) {
       isCancelingRef.current = false;
       return;
     }
-    handleDescriptionChange(transactionId, descriptionValue);
+    const value = descriptionValue;
+    setEditingDescription(null);
+    handleDescriptionChange(transactionId, value);
   };
 
   const handleCreateCategory = async (name: string): Promise<Category | null> => {
@@ -458,40 +523,27 @@ export default function TransactionsList() {
     }
   }, [transactions, fetchSubscriptionSuggestions]);
 
-  const toggleTagForTransaction = async (transactionId: string, tag: Tag) => {
-    setUpdatingTransaction(transactionId);
-    try {
+  const toggleTagForTransaction = useCallback(
+    (transactionId: string, tag: Tag) => {
+      const key = `tags:${transactionId}`;
       const currentTags = transactionTags[transactionId] || [];
       const hasTag = currentTags.some((t) => t.id === tag.id);
       const nextTags = hasTag
         ? currentTags.filter((t) => t.id !== tag.id)
         : [...currentTags, tag];
-
       const tagIds = nextTags.map((t) => t.id);
+      const prevTags = [...currentTags];
 
-      const response = await fetch(`/api/transactions/${transactionId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
+      setTransactionTags((p) => ({ ...p, [transactionId]: nextTags }));
+
+      patchWithAbort(key, { tag_ids: tagIds }, {
+        onRevert: () => {
+          setTransactionTags((p) => ({ ...p, [transactionId]: prevTags }));
         },
-        body: JSON.stringify({ tag_ids: tagIds }),
       });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update tags");
-      }
-
-      setTransactionTags((prev) => ({
-        ...prev,
-        [transactionId]: nextTags,
-      }));
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setUpdatingTransaction(null);
-    }
-  };
+    },
+    [transactionTags, patchWithAbort]
+  );
 
 
   if (loading) {
@@ -516,25 +568,34 @@ export default function TransactionsList() {
   return (
     <div className="space-y-6">
       <div className="bg-white shadow rounded-lg p-6">
+        {paymentMethodId && (
+          <p className="mb-4 text-sm text-gray-600">
+            <Link href="/transactions" className="text-blue-600 hover:text-blue-500">
+              View all transactions
+            </Link>
+          </p>
+        )}
         <div className="space-y-4 mb-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Account
-              </label>
-              <select
-                value={filterPaymentMethod}
-                onChange={(e) => setFilterPaymentMethod(e.target.value)}
-                className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-              >
-                <option value="">All Accounts</option>
-                {paymentMethods.map((pm) => (
-                  <option key={pm.id} value={pm.id}>
-                    {pm.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className={`grid grid-cols-1 gap-4 ${paymentMethodId ? "md:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-4"}`}>
+            {!paymentMethodId && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Account
+                </label>
+                <select
+                  value={filterPaymentMethod}
+                  onChange={(e) => setFilterPaymentMethod(e.target.value)}
+                  className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                >
+                  <option value="">All Accounts</option>
+                  {paymentMethods.map((pm) => (
+                    <option key={pm.id} value={pm.id}>
+                      {pm.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -644,9 +705,11 @@ export default function TransactionsList() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Tags
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payment Method
-                </th>
+                {!paymentMethodId && (
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Payment Method
+                  </th>
+                )}
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Amount
                 </th>
@@ -684,7 +747,6 @@ export default function TransactionsList() {
                             }}
                             className="flex-1 px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
                             autoFocus
-                            disabled={updatingTransaction === transaction.id}
                           />
                         </div>
                       ) : (
@@ -717,22 +779,20 @@ export default function TransactionsList() {
                     <AutocompleteDropdown
                       items={categories}
                       value={transaction.category_id}
-                      onChange={(categoryId) => handleCategoryChange(transaction.id, categoryId)}
+                      onChange={(categoryId, categoryName) => handleCategoryChange(transaction.id, categoryId, categoryName)}
                       onCreateNew={handleCreateCategory}
                       placeholder="Select category..."
                       className="min-w-[150px]"
-                      disabled={updatingTransaction === transaction.id}
                     />
                   </td>
                   <td className="px-6 py-4 text-sm">
                     <AutocompleteDropdown
                       items={merchants}
                       value={transaction.merchant_id}
-                      onChange={(merchantId) => handleMerchantChange(transaction.id, merchantId)}
+                      onChange={(merchantId, merchantName) => handleMerchantChange(transaction.id, merchantId, merchantName)}
                       onCreateNew={handleCreateMerchant}
                       placeholder="Select merchant..."
                       className="min-w-[150px]"
-                      disabled={updatingTransaction === transaction.id}
                     />
                   </td>
                   <td className="px-6 py-4 text-sm">
@@ -748,7 +808,6 @@ export default function TransactionsList() {
                             color: "#111827",
                           }}
                           title={tag.exclude_from_analytics ? "Excluded from main analytics" : undefined}
-                          disabled={updatingTransaction === transaction.id}
                         >
                           {tag.name}
                         </button>
@@ -762,7 +821,6 @@ export default function TransactionsList() {
                             )
                           }
                           className="px-2 py-0.5 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-600 hover:border-gray-400 hover:text-gray-800"
-                          disabled={updatingTransaction === transaction.id}
                         >
                           + Tag
                         </button>
@@ -789,7 +847,6 @@ export default function TransactionsList() {
                                           ? "bg-indigo-50 text-indigo-700"
                                           : "text-gray-700 hover:bg-gray-50"
                                       }`}
-                                      disabled={updatingTransaction === transaction.id}
                                     >
                                       <span className="flex items-center gap-2">
                                         <span
@@ -813,9 +870,11 @@ export default function TransactionsList() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {transaction.payment_methods?.name || "-"}
-                  </td>
+                  {!paymentMethodId && (
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {transaction.payment_methods?.name || "-"}
+                    </td>
+                  )}
                   <td
                     className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
                       transaction.amount >= 0 ? "text-green-600" : "text-red-600"
