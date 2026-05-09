@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import heicConvert from "heic-convert";
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -48,9 +49,9 @@ export async function POST(request: Request) {
 
       // Convert blob to base64 data URL
       const arrayBuffer = await data.arrayBuffer();
-      const base64 = Buffer.from(arrayBuffer).toString('base64');
-      const mimeType = data.type || 'image/jpeg';
-      imageDataUrl = `data:${mimeType};base64,${base64}`;
+      const imageBuffer = Buffer.from(arrayBuffer);
+      const mimeType = data.type || "image/jpeg";
+      imageDataUrl = await toSupportedImageDataUrl(imageBuffer, mimeType, filePath);
     } else {
       // If we have a public URL, try to fetch it
       // But if it's a private bucket, we'll need to handle it differently
@@ -63,8 +64,12 @@ export async function POST(request: Request) {
       }
       const imageBlob = await imageResponse.blob();
       const arrayBuffer = await imageBlob.arrayBuffer();
-      const base64 = Buffer.from(arrayBuffer).toString('base64');
-      imageDataUrl = `data:${imageBlob.type};base64,${base64}`;
+      const imageBuffer = Buffer.from(arrayBuffer);
+      imageDataUrl = await toSupportedImageDataUrl(
+        imageBuffer,
+        imageBlob.type || "image/jpeg",
+        imageUrl
+      );
     }
 
     // Use OpenAI Vision API to extract text from image
@@ -133,6 +138,32 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+async function toSupportedImageDataUrl(
+  imageBuffer: Buffer,
+  mimeType: string,
+  sourceRef?: string
+): Promise<string> {
+  const lowerMime = (mimeType || "").toLowerCase();
+  const lowerRef = (sourceRef || "").toLowerCase();
+  const isHeic =
+    lowerMime.includes("heic") ||
+    lowerMime.includes("heif") ||
+    lowerRef.endsWith(".heic") ||
+    lowerRef.endsWith(".heif");
+
+  if (isHeic) {
+    const converted = await heicConvert({
+      buffer: imageBuffer,
+      format: "JPEG",
+      quality: 0.9,
+    });
+    const jpegBuffer = Buffer.from(converted as ArrayBuffer);
+    return `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
+  }
+
+  return `data:${mimeType || "image/jpeg"};base64,${imageBuffer.toString("base64")}`;
 }
 
 function extractAmount(text: string): number | null {
