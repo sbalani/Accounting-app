@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import heicConvert from "heic-convert";
+import { heicBufferToJpeg, isHeicFormat } from "@/lib/utils/heic-to-jpeg";
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -145,21 +145,8 @@ async function toSupportedImageDataUrl(
   mimeType: string,
   sourceRef?: string
 ): Promise<string> {
-  const lowerMime = (mimeType || "").toLowerCase();
-  const lowerRef = (sourceRef || "").toLowerCase();
-  const isHeic =
-    lowerMime.includes("heic") ||
-    lowerMime.includes("heif") ||
-    lowerRef.endsWith(".heic") ||
-    lowerRef.endsWith(".heif");
-
-  if (isHeic) {
-    const converted = await heicConvert({
-      buffer: imageBuffer,
-      format: "JPEG",
-      quality: 0.9,
-    });
-    const jpegBuffer = Buffer.from(converted as ArrayBuffer);
+  if (isHeicFormat(mimeType, sourceRef)) {
+    const jpegBuffer = await heicBufferToJpeg(imageBuffer);
     return `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
   }
 

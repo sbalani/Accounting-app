@@ -175,6 +175,7 @@ export async function POST(request: Request) {
     const merchant = thisRow.merchant?.trim() || otherRow.merchant?.trim() || null;
     const merchantId = thisRow.merchant_id || otherRow.merchant_id || null;
     const category = thisRow.category?.trim() || otherRow.category?.trim() || null;
+    const categoryId = thisRow.category_id || otherRow.category_id || null;
     const source = thisRow.source || "csv";
 
     importedTransactions.push(
@@ -189,6 +190,7 @@ export async function POST(request: Request) {
         merchant,
         merchant_id: merchantId,
         category,
+        category_id: categoryId,
         transaction_date: date,
         source,
         transaction_type: "transfer",
@@ -207,6 +209,7 @@ export async function POST(request: Request) {
         merchant,
         merchant_id: merchantId,
         category,
+        category_id: categoryId,
         transaction_date: date,
         source,
         transaction_type: "transfer",
@@ -308,6 +311,7 @@ export async function POST(request: Request) {
         merchant: transaction.merchant?.trim() || null,
         merchant_id: transaction.merchant_id || null,
         category: transaction.category?.trim() || null,
+        category_id: transaction.category_id || null,
         transaction_date: transaction.transaction_date,
         source: transaction.source || "csv",
         transaction_type: transactionType,
@@ -376,6 +380,7 @@ export async function POST(request: Request) {
               merchant: transaction.merchant?.trim() || null,
               merchant_id: transaction.merchant_id || null,
               category: transaction.category?.trim() || null,
+              category_id: transaction.category_id || null,
               transaction_date: transaction.transaction_date,
               source: transaction.source || "csv",
               transaction_type: "transfer",

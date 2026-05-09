@@ -64,8 +64,9 @@ export default function StatementImportPage() {
   const [processing, setProcessing] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  // Merchant mapping
+  // Merchant mapping & categories (review step dropdowns)
   const [merchants, setMerchants] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [statementMerchants, setStatementMerchants] = useState<
     { key: string; name: string }[]
   >([]);
@@ -104,8 +105,50 @@ export default function StatementImportPage() {
     fetchPaymentMethods();
     fetchTransferRules();
     fetchMerchants();
+    fetchCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Match statement merchant/category text to workspace lists when IDs are not set yet
+  useEffect(() => {
+    if (parsedTransactions.length === 0) return;
+    if (merchants.length === 0 && categories.length === 0) return;
+
+    setParsedTransactions((prev) => {
+      let changed = false;
+      const next = prev.map((tx) => {
+        let updated = tx;
+
+        if (merchants.length > 0 && !tx.merchant_id && tx.merchant?.trim()) {
+          const match = merchants.find(
+            (m) =>
+              normalizeMerchantName(m.name) ===
+              normalizeMerchantName(tx.merchant!.trim())
+          );
+          if (match) {
+            updated = { ...updated, merchant_id: match.id };
+            changed = true;
+          }
+        }
+
+        if (categories.length > 0 && !tx.category_id && tx.category?.trim()) {
+          const match = categories.find(
+            (c) =>
+              normalizeMerchantName(c.name) ===
+              normalizeMerchantName(tx.category!.trim())
+          );
+          if (match) {
+            updated = { ...updated, category_id: match.id };
+            changed = true;
+          }
+        }
+
+        return updated;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [merchants, categories, parsedTransactions.length]);
 
   // Load saved CSV config when payment method changes in configure step
   useEffect(() => {
@@ -248,6 +291,18 @@ export default function StatementImportPage() {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      const response = await fetch("/api/categories");
+      if (response.ok) {
+        const data = await response.json();
+        setCategories(data.categories || []);
+      }
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+    }
+  };
+
   const handleCreatePaymentMethod = async () => {
     if (!newPaymentMethodName.trim()) {
       return;
@@ -333,6 +388,50 @@ export default function StatementImportPage() {
       setError(err.message);
     } finally {
       setCreatingTransferRule(false);
+    }
+  };
+
+  const createCategoryByName = async (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName) return null;
+
+    const existingCategory = categories.find(
+      (c) =>
+        normalizeMerchantName(c.name) === normalizeMerchantName(trimmedName)
+    );
+    if (existingCategory) {
+      return {
+        id: existingCategory.id,
+        name: existingCategory.name,
+        color: existingCategory.color,
+        is_default: existingCategory.is_default,
+      };
+    }
+
+    try {
+      const response = await fetch("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmedName }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create category");
+      }
+      const category = data.category;
+      setCategories((prev) => {
+        const exists = prev.some((item) => item.id === category.id);
+        return exists ? prev : [...prev, category];
+      });
+      return {
+        id: category.id,
+        name: category.name,
+        color: category.color,
+        is_default: category.is_default,
+      };
+    } catch (err: any) {
+      setError(err.message || "Failed to create category");
+      return null;
     }
   };
 
@@ -1776,8 +1875,11 @@ export default function StatementImportPage() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Description
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[10rem]">
                           Merchant
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[10rem]">
+                          Category
                         </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Amount
@@ -1802,6 +1904,8 @@ export default function StatementImportPage() {
                           allTransactions={parsedTransactions}
                           paymentMethods={paymentMethods}
                           paymentMethodId={paymentMethodId}
+                          merchants={merchants}
+                          categories={categories}
                           onUpdate={(updated) => {
                             setParsedTransactions((prev) =>
                               prev.map((t, i) => (i === index ? updated : t))
@@ -1811,6 +1915,8 @@ export default function StatementImportPage() {
                           onUnlinkPair={handleUnlinkPair}
                           onPairAssignment={handlePairAssignment}
                           onCreatePaymentMethod={() => setShowPaymentMethodForm(true)}
+                          onCreateMerchant={createMerchantByName}
+                          onCreateCategory={createCategoryByName}
                           primaryCurrency={primaryCurrency}
                           importing={importing}
                         />
@@ -1885,11 +1991,15 @@ function TransactionRow({
   allTransactions,
   paymentMethods,
   paymentMethodId,
+  merchants,
+  categories,
   onUpdate,
   onLinkRows,
   onUnlinkPair,
   onPairAssignment,
   onCreatePaymentMethod,
+  onCreateMerchant,
+  onCreateCategory,
   primaryCurrency,
   importing,
 }: {
@@ -1898,6 +2008,8 @@ function TransactionRow({
   allTransactions: ParsedTransaction[];
   paymentMethods: any[];
   paymentMethodId: string;
+  merchants: { id: string; name: string; color?: string; is_default?: boolean }[];
+  categories: { id: string; name: string; color?: string; is_default?: boolean }[];
   onUpdate: (transaction: ParsedTransaction) => void;
   onLinkRows: (i: number, j: number) => void;
   onUnlinkPair: (pairId: string) => void;
@@ -1908,6 +2020,18 @@ function TransactionRow({
     otherAccountId: string | null
   ) => void;
   onCreatePaymentMethod: () => void;
+  onCreateMerchant: (name: string) => Promise<{
+    id: string;
+    name: string;
+    color?: string;
+    is_default?: boolean;
+  } | null>;
+  onCreateCategory: (name: string) => Promise<{
+    id: string;
+    name: string;
+    color?: string;
+    is_default?: boolean;
+  } | null>;
   primaryCurrency: string;
   importing: boolean;
 }) {
@@ -2021,8 +2145,55 @@ function TransactionRow({
       <td className="px-4 py-3 text-sm text-gray-900">
         {transaction.description || "-"}
       </td>
-      <td className="px-4 py-3 text-sm text-gray-900">
-        {transaction.merchant || "-"}
+      <td className="px-4 py-3 text-sm text-gray-900 align-top min-w-[10rem]">
+        {isPaired ? (
+          <span className="text-gray-700">{transaction.merchant || "—"}</span>
+        ) : (
+          <AutocompleteDropdown
+            items={merchants}
+            value={transaction.merchant_id ?? null}
+            onChange={(merchantId, merchantName) =>
+              onUpdate({
+                ...transaction,
+                merchant_id: merchantId,
+                merchant: merchantName,
+              })
+            }
+            onCreateNew={onCreateMerchant}
+            placeholder={
+              transaction.merchant
+                ? `Match: ${transaction.merchant.slice(0, 28)}${transaction.merchant.length > 28 ? "…" : ""}`
+                : "Select merchant..."
+            }
+            disabled={importing || !!transaction.excluded}
+            className="min-w-[9rem]"
+          />
+        )}
+      </td>
+      <td className="px-4 py-3 text-sm text-gray-900 align-top min-w-[10rem]">
+        {isPaired ? (
+          <span className="text-gray-700">{transaction.category || "—"}</span>
+        ) : (
+          <AutocompleteDropdown
+            items={categories}
+            value={transaction.category_id ?? null}
+            onChange={(categoryId, categoryName) =>
+              onUpdate({
+                ...transaction,
+                category_id: categoryId,
+                category: categoryName,
+              })
+            }
+            onCreateNew={onCreateCategory}
+            placeholder={
+              transaction.category
+                ? `Match: ${transaction.category.slice(0, 28)}${transaction.category.length > 28 ? "…" : ""}`
+                : "Select category..."
+            }
+            disabled={importing || !!transaction.excluded}
+            className="min-w-[9rem]"
+          />
+        )}
       </td>
       <td
         className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${

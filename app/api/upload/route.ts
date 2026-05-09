@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
+import { heicBufferToJpeg, isHeicFormat } from "@/lib/utils/heic-to-jpeg";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -33,29 +34,64 @@ export async function POST(request: Request) {
     );
   }
 
-  // Generate unique file path
-  const fileExt = file.name.split(".").pop();
-  const fileName = `${user.id}/${workspaceId}/${type}/${Date.now()}.${fileExt}`;
-  const bucketName = type === "receipt" ? "receipts" : type === "statement" ? "statements" : "receipts"; // Use receipts bucket for audio temporarily
+  const ts = Date.now();
+  const fileExt = file.name.split(".").pop() || "bin";
+  const fileName = `${user.id}/${workspaceId}/${type}/${ts}.${fileExt}`;
+  const bucketName =
+    type === "receipt"
+      ? "receipts"
+      : type === "statement"
+        ? "statements"
+        : "receipts";
 
-  // Upload file to Supabase Storage
-  const { data, error } = await supabase.storage
-    .from(bucketName)
-    .upload(fileName, file, {
-      cacheControl: "3600",
-      upsert: false,
-    });
+  const arrayBuffer = await file.arrayBuffer();
+
+  const { data, error } = await supabase.storage.from(bucketName).upload(fileName, arrayBuffer, {
+    contentType: file.type || "application/octet-stream",
+    cacheControl: "3600",
+    upsert: false,
+  });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Get signed URL for private buckets (valid for 1 hour)
-  const {
-    data: signedUrlData,
-  } = await supabase.storage.from(bucketName).createSignedUrl(fileName, 3600);
+  let previewPath: string | null = null;
+  if (
+    type === "receipt" &&
+    bucketName === "receipts" &&
+    isHeicFormat(file.type, file.name)
+  ) {
+    const previewFileName = `${user.id}/${workspaceId}/${type}/${ts}.preview.jpg`;
+    try {
+      const jpegBuffer = await heicBufferToJpeg(Buffer.from(arrayBuffer));
+      const { error: previewError } = await supabase.storage
+        .from(bucketName)
+        .upload(previewFileName, jpegBuffer, {
+          contentType: "image/jpeg",
+          cacheControl: "86400",
+          upsert: false,
+        });
+      if (!previewError) {
+        previewPath = previewFileName;
+      }
+    } catch {
+      // Original upload succeeded; preview is optional for UI only.
+    }
+  }
 
-  // Also return the file path for server-side access
+  const { data: signedUrlData } = await supabase.storage
+    .from(bucketName)
+    .createSignedUrl(fileName, 3600);
+
+  let previewSignedUrl: string | null = null;
+  if (previewPath) {
+    const { data: previewSigned } = await supabase.storage
+      .from(bucketName)
+      .createSignedUrl(previewPath, 3600);
+    previewSignedUrl = previewSigned?.signedUrl ?? null;
+  }
+
   const filePath = `${bucketName}/${data.path}`;
 
   return NextResponse.json({
@@ -65,5 +101,6 @@ export async function POST(request: Request) {
     fileSize: file.size,
     fileType: file.type,
     signedUrl: signedUrlData?.signedUrl || null,
+    previewSignedUrl,
   });
 }

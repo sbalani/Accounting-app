@@ -15,6 +15,41 @@ interface ParsedTransaction {
   currency?: string | null;
 }
 
+function isHeicUpload(file: {
+  fileName?: string;
+  filePath?: string;
+  fileType?: string;
+}): boolean {
+  const name = (file.fileName || file.filePath || "").toLowerCase();
+  const mime = (file.fileType || "").toLowerCase();
+  return (
+    mime.includes("heic") ||
+    mime.includes("heif") ||
+    name.endsWith(".heic") ||
+    name.endsWith(".heif")
+  );
+}
+
+function receiptImagePreviewUrl(file: {
+  previewSignedUrl?: string | null;
+  signedUrl?: string | null;
+  filePath?: string;
+  fileName?: string;
+  fileType?: string;
+}): string | null {
+  if (file.previewSignedUrl) {
+    return file.previewSignedUrl;
+  }
+  if (isHeicUpload(file)) {
+    const path = file.filePath;
+    if (path) {
+      return `/api/storage/receipt-preview?path=${encodeURIComponent(path)}`;
+    }
+    return null;
+  }
+  return file.signedUrl || null;
+}
+
 interface QueueItem {
   id: string;
   file: any;
@@ -317,7 +352,7 @@ export default function ReceiptUploadPage() {
 
       <div className="space-y-4">
         {queue.map((item) => {
-          const previewUrl = item.file.signedUrl || null;
+          const previewUrl = receiptImagePreviewUrl(item.file);
           const isOpen = item.previewOpen === true;
 
           return (
