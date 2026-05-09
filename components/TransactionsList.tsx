@@ -67,12 +67,18 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
   const [subscriptionSuggestions, setSubscriptionSuggestions] = useState<Record<string, any>>({});
   const [editingDescription, setEditingDescription] = useState<string | null>(null);
   const [descriptionValue, setDescriptionValue] = useState<string>("");
+  const [editingAmountId, setEditingAmountId] = useState<string | null>(null);
+  const [amountDraft, setAmountDraft] = useState<string>("");
+  const [editingDateId, setEditingDateId] = useState<string | null>(null);
+  const [dateDraft, setDateDraft] = useState<string>("");
   const [tags, setTags] = useState<Tag[]>([]);
   const [transactionTags, setTransactionTags] = useState<Record<string, Tag[]>>({});
   const [openTagPickerFor, setOpenTagPickerFor] = useState<string | null>(null);
   const [openingBalance, setOpeningBalance] = useState<number | null>(null);
   const originalDescriptionRef = useRef<string>("");
   const isCancelingRef = useRef<boolean>(false);
+  const isCancelingAmountRef = useRef<boolean>(false);
+  const isCancelingDateRef = useRef<boolean>(false);
   /** AbortControllers for in-flight PATCH requests, keyed by "field:transactionId". Cancel previous when user edits same field again. */
   const pendingPatchRef = useRef<Record<string, AbortController>>({});
 
@@ -221,7 +227,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
       const ac = new AbortController();
       pendingPatchRef.current[key] = ac;
       try {
-        const [txId] = key.split(":").reverse();
+        const txId = key.includes(":") ? key.slice(key.indexOf(":") + 1) : key;
         const response = await fetch(`/api/transactions/${txId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -398,6 +404,124 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
     const value = descriptionValue;
     setEditingDescription(null);
     handleDescriptionChange(transactionId, value);
+  };
+
+  const startEditingAmount = (transaction: Transaction) => {
+    if (transaction.transaction_type === "transfer") return;
+    setEditingAmountId(transaction.id);
+    setAmountDraft(String(transaction.amount));
+    isCancelingAmountRef.current = false;
+  };
+
+  const cancelEditingAmount = () => {
+    isCancelingAmountRef.current = true;
+    setEditingAmountId(null);
+    setAmountDraft("");
+  };
+
+  const saveAmountEdit = (transactionId: string) => {
+    if (isCancelingAmountRef.current) {
+      isCancelingAmountRef.current = false;
+      return;
+    }
+    const raw = amountDraft.trim().replace(/,/g, "");
+    const parsed = parseFloat(raw);
+    if (Number.isNaN(parsed) || parsed === 0) {
+      alert("Enter a non-zero number (use negative for expenses, positive for income).");
+      return;
+    }
+    setEditingAmountId(null);
+    setAmountDraft("");
+
+    const key = `amount:${transactionId}`;
+    let previousAmount = 0;
+    setTransactions((p) => {
+      const t = p.find((x) => x.id === transactionId);
+      if (t) previousAmount = t.amount;
+      return p.map((t) =>
+        t.id === transactionId ? { ...t, amount: parsed } : t
+      );
+    });
+
+    patchWithAbort(key, { amount: parsed }, {
+      onSuccess: (d) => {
+        const u = d.transaction;
+        setTransactions((p) =>
+          p.map((t) =>
+            t.id === transactionId
+              ? {
+                  ...t,
+                  amount: Number(u.amount),
+                }
+              : t
+          )
+        );
+      },
+      onRevert: () => {
+        setTransactions((p) =>
+          p.map((t) =>
+            t.id === transactionId ? { ...t, amount: previousAmount } : t
+          )
+        );
+      },
+    });
+  };
+
+  const startEditingDate = (transaction: Transaction) => {
+    setEditingDateId(transaction.id);
+    const d = transaction.transaction_date;
+    setDateDraft(d.length >= 10 ? d.slice(0, 10) : d);
+    isCancelingDateRef.current = false;
+  };
+
+  const cancelEditingDate = () => {
+    isCancelingDateRef.current = true;
+    setEditingDateId(null);
+    setDateDraft("");
+  };
+
+  const saveDateEdit = (transactionId: string) => {
+    if (isCancelingDateRef.current) {
+      isCancelingDateRef.current = false;
+      return;
+    }
+    const next = dateDraft.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(next)) {
+      alert("Use a valid date (YYYY-MM-DD).");
+      return;
+    }
+    setEditingDateId(null);
+    setDateDraft("");
+
+    const key = `date:${transactionId}`;
+    let previousDate = "";
+    setTransactions((p) => {
+      const t = p.find((x) => x.id === transactionId);
+      if (t) previousDate = t.transaction_date;
+      return p.map((t) =>
+        t.id === transactionId ? { ...t, transaction_date: next } : t
+      );
+    });
+
+    patchWithAbort(key, { transaction_date: next }, {
+      onSuccess: (d) => {
+        const u = d.transaction;
+        setTransactions((p) =>
+          p.map((t) =>
+            t.id === transactionId
+              ? { ...t, transaction_date: u.transaction_date ?? next }
+              : t
+          )
+        );
+      },
+      onRevert: () => {
+        setTransactions((p) =>
+          p.map((t) =>
+            t.id === transactionId ? { ...t, transaction_date: previousDate } : t
+          )
+        );
+      },
+    });
   };
 
   const handleCreateCategory = async (name: string): Promise<Category | null> => {
@@ -761,8 +885,35 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
             <tbody className="bg-white divide-y divide-gray-200">
               {transactions.map((transaction) => (
                 <tr key={transaction.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {new Date(transaction.transaction_date).toLocaleDateString()}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-top">
+                    {editingDateId === transaction.id ? (
+                      <input
+                        type="date"
+                        value={dateDraft}
+                        onChange={(e) => setDateDraft(e.target.value)}
+                        onBlur={() => saveDateEdit(transaction.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            (e.target as HTMLInputElement).blur();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            isCancelingDateRef.current = true;
+                            cancelEditingDate();
+                          }
+                        }}
+                        className="px-2 py-1 border border-gray-300 rounded text-sm"
+                        autoFocus
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startEditingDate(transaction)}
+                        className="cursor-pointer hover:bg-gray-50 px-2 py-1 rounded -mx-2 text-left w-full"
+                        title="Click to change date"
+                      >
+                        {new Date(transaction.transaction_date + "T12:00:00").toLocaleDateString()}
+                      </button>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">
                     <div>
@@ -916,11 +1067,45 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
                     </td>
                   )}
                   <td
-                    className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
+                    className={`px-6 py-4 whitespace-nowrap text-sm font-medium align-top ${
                       transaction.amount >= 0 ? "text-green-600" : "text-red-600"
                     }`}
                   >
-                    {formatCurrency(transaction.amount, primaryCurrency)}
+                    {transaction.transaction_type === "transfer" ? (
+                      <span title="Edit transfer amounts on the transaction page">
+                        {formatCurrency(transaction.amount, primaryCurrency)}
+                      </span>
+                    ) : editingAmountId === transaction.id ? (
+                      <div className="flex items-center gap-1 min-w-[7rem]">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={amountDraft}
+                          onChange={(e) => setAmountDraft(e.target.value)}
+                          onBlur={() => saveAmountEdit(transaction.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              (e.target as HTMLInputElement).blur();
+                            } else if (e.key === "Escape") {
+                              e.preventDefault();
+                              isCancelingAmountRef.current = true;
+                              cancelEditingAmount();
+                            }
+                          }}
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm text-gray-900 font-medium"
+                          autoFocus
+                        />
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => startEditingAmount(transaction)}
+                        className="cursor-pointer hover:bg-gray-50 px-2 py-1 rounded -mx-2 text-left w-full font-medium"
+                        title="Click to edit amount (negative = expense, positive = income)"
+                      >
+                        {formatCurrency(transaction.amount, primaryCurrency)}
+                      </button>
+                    )}
                   </td>
                   {showBalance && (
                     <td className="px-6 py-4 whitespace-nowrap text-sm tabular-nums text-gray-700">
@@ -932,8 +1117,9 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
                       <Link
                         href={`/transactions/${transaction.id}`}
                         className="text-blue-600 hover:text-blue-500"
+                        title="Open full details (account, transfer tools, etc.)"
                       >
-                        Edit
+                        Details
                       </Link>
                       {!transaction.subscription_id && (
                         <button
