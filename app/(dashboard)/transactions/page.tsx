@@ -50,6 +50,12 @@ export default async function TransactionsPage() {
             >
               Import Statement
             </a>
+            <a
+              href="/transactions/duplicates"
+              className="px-4 py-2 border border-amber-200 rounded-md shadow-sm text-sm font-medium text-amber-900 bg-amber-50 hover:bg-amber-100"
+            >
+              Find duplicates
+            </a>
           </div>
         </div>
 
