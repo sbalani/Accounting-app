@@ -9,15 +9,25 @@ import DuplicateDetection from "@/components/DuplicateDetection";
 interface ParsedTransaction {
   amount: number;
   description: string | null;
+  merchant?: string | null;
   category: string | null;
   transaction_date: string;
 }
 
 export default function ReceiptUploadPage() {
   const router = useRouter();
-  const [uploadedFile, setUploadedFile] = useState<any>(null);
-  const [parsedTransaction, setParsedTransaction] = useState<ParsedTransaction | null>(null);
-  const [processing, setProcessing] = useState(false);
+  const [mode, setMode] = useState<"upload" | "processing" | "review">("upload");
+  const [queue, setQueue] = useState<
+    Array<{
+      id: string;
+      file: any;
+      status: "uploaded" | "processing" | "parsed" | "error";
+      parsed?: ParsedTransaction | null;
+      error?: string | null;
+      payment_method_id?: string;
+      include?: boolean;
+    }>
+  >([]);
   const [saving, setSaving] = useState(false);
   const [paymentMethodId, setPaymentMethodId] = useState("");
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
@@ -43,63 +53,122 @@ export default function ReceiptUploadPage() {
   };
 
   const handleUploadComplete = async (fileData: any) => {
-    setUploadedFile(fileData);
-    setProcessing(true);
+    setError(null);
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setQueue((prev) => [
+      ...prev,
+      {
+        id,
+        file: fileData,
+        status: "uploaded",
+        parsed: null,
+        error: null,
+        payment_method_id: paymentMethodId || undefined,
+        include: true,
+      },
+    ]);
+  };
+
+  const processQueue = async () => {
+    if (queue.length === 0) return;
+    setMode("processing");
     setError(null);
 
-    try {
-      const response = await fetch("/api/openai/ocr", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          imageUrl: fileData.publicUrl,
-        }),
-      });
+    // process sequentially to avoid hammering OpenAI + preserve UI responsiveness
+    for (const item of queue) {
+      if (item.status === "parsed") continue;
 
-      if (!response.ok) {
+      setQueue((prev) =>
+        prev.map((q) =>
+          q.id === item.id ? { ...q, status: "processing", error: null } : q
+        )
+      );
+
+      try {
+        const response = await fetch("/api/openai/ocr", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            // Prefer server-side storage download for private buckets
+            filePath: item.file.filePathFull || item.file.filePath,
+            imageUrl: item.file.signedUrl || null,
+          }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Failed to process receipt");
+        }
+
         const data = await response.json();
-        throw new Error(data.error || "Failed to process receipt");
-      }
+        const parsed = data.transaction as ParsedTransaction;
 
-      const data = await response.json();
-      setParsedTransaction(data.transaction);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setProcessing(false);
+        setQueue((prev) =>
+          prev.map((q) =>
+            q.id === item.id ? { ...q, status: "parsed", parsed } : q
+          )
+        );
+      } catch (err: any) {
+        setQueue((prev) =>
+          prev.map((q) =>
+            q.id === item.id
+              ? { ...q, status: "error", error: err.message || "Failed to parse" }
+              : q
+          )
+        );
+      }
     }
+
+    setMode("review");
+  };
+
+  const updateQueueItem = (id: string, patch: Partial<(typeof queue)[number]>) => {
+    setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+  };
+
+  const removeFromQueue = (id: string) => {
+    setQueue((prev) => prev.filter((q) => q.id !== id));
   };
 
   const handleSave = async () => {
-    if (!parsedTransaction || !paymentMethodId) {
-      setError("Missing required fields");
-      return;
-    }
-
     setSaving(true);
     setError(null);
 
     try {
-      const response = await fetch("/api/transactions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          payment_method_id: paymentMethodId,
-          amount: parsedTransaction.amount,
-          description: parsedTransaction.description,
-          category: parsedTransaction.category,
-          transaction_date: parsedTransaction.transaction_date,
-          source: "receipt",
-        }),
-      });
+      const toSave = queue.filter((q) => q.include !== false && q.status === "parsed" && q.parsed);
+      if (toSave.length === 0) {
+        throw new Error("No parsed receipts selected to save");
+      }
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to save transaction");
+      for (const item of toSave) {
+        const tx = item.parsed!;
+        const pmId = item.payment_method_id || paymentMethodId;
+        if (!pmId || !tx.amount || !tx.transaction_date) {
+          throw new Error("Missing required fields in one or more transactions");
+        }
+
+        const response = await fetch("/api/transactions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            payment_method_id: pmId,
+            amount: tx.amount,
+            description: tx.description,
+            merchant: tx.merchant || null,
+            category: tx.category,
+            transaction_date: tx.transaction_date,
+            source: "receipt",
+          }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "Failed to save one or more transactions");
+        }
       }
 
       router.push("/transactions");
@@ -130,127 +199,285 @@ export default function ReceiptUploadPage() {
             </div>
           )}
 
-          {!uploadedFile ? (
-            <FileUpload
-              type="receipt"
-              onUploadComplete={handleUploadComplete}
-              onUploadError={(err) => setError(err)}
-              accept="image/*"
-            />
-          ) : (
-            <>
-              {processing ? (
-                <div className="text-center py-8">
-                  <p className="text-gray-600">Processing receipt...</p>
+          {mode === "upload" && (
+            <div className="space-y-4">
+              <FileUpload
+                type="receipt"
+                onUploadComplete={handleUploadComplete}
+                onUploadError={(err) => setError(err)}
+                accept="image/*"
+                multiple
+              />
+
+              <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Default Payment Method
+                  </label>
+                  <select
+                    value={paymentMethodId}
+                    onChange={(e) => setPaymentMethodId(e.target.value)}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    required
+                  >
+                    {paymentMethods.map((pm) => (
+                      <option key={pm.id} value={pm.id}>
+                        {pm.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    You can override the payment method per receipt during review.
+                  </p>
                 </div>
-              ) : parsedTransaction ? (
-                <>
-                  <div className="border rounded-lg p-4 bg-gray-50">
-                    <h2 className="font-semibold mb-4">Extracted Transaction Details</h2>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Amount</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={parsedTransaction.amount}
-                          onChange={(e) =>
-                            setParsedTransaction({
-                              ...parsedTransaction,
-                              amount: parseFloat(e.target.value),
-                            })
-                          }
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Description</label>
-                        <input
-                          type="text"
-                          value={parsedTransaction.description || ""}
-                          onChange={(e) =>
-                            setParsedTransaction({
-                              ...parsedTransaction,
-                              description: e.target.value,
-                            })
-                          }
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Date</label>
-                        <input
-                          type="date"
-                          value={parsedTransaction.transaction_date}
-                          onChange={(e) =>
-                            setParsedTransaction({
-                              ...parsedTransaction,
-                              transaction_date: e.target.value,
-                            })
-                          }
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700">Payment Method</label>
-                        <select
-                          value={paymentMethodId}
-                          onChange={(e) => setPaymentMethodId(e.target.value)}
-                          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          required
-                        >
-                          {paymentMethods.map((pm) => (
-                            <option key={pm.id} value={pm.id}>
-                              {pm.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+
+                {queue.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-gray-700">
+                        Queue: <span className="font-medium">{queue.length}</span> receipt(s)
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setQueue([])}
+                        className="text-xs text-red-600 hover:text-red-500"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      {queue.map((q) => (
+                        <div key={q.id} className="flex items-center justify-between text-xs bg-white border rounded px-3 py-2">
+                          <span className="text-gray-700 truncate">
+                            {q.file.fileName || q.file.filePath || "Receipt"}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeFromQueue(q.id)}
+                            className="text-red-600 hover:text-red-500"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   </div>
+                ) : (
+                  <p className="text-sm text-gray-600">
+                    Upload one or more receipts to build a queue.
+                  </p>
+                )}
+              </div>
 
-                  {paymentMethodId && parsedTransaction.amount && parsedTransaction.transaction_date && (
-                    <DuplicateDetection
-                      amount={parsedTransaction.amount}
-                      transactionDate={parsedTransaction.transaction_date}
-                      paymentMethodId={paymentMethodId}
-                    />
-                  )}
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={processQueue}
+                  disabled={queue.length === 0}
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Process {queue.length} Receipt{queue.length === 1 ? "" : "s"}
+                </button>
+              </div>
+            </div>
+          )}
 
-                  <div className="flex justify-end space-x-3">
-                    <button
-                      onClick={() => {
-                        setUploadedFile(null);
-                        setParsedTransaction(null);
-                      }}
-                      className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleSave}
-                      disabled={saving}
-                      className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                    >
-                      {saving ? "Saving..." : "Save Transaction"}
-                    </button>
+          {mode === "processing" && (
+            <div className="text-center py-8 space-y-2">
+              <p className="text-gray-600">Processing receipts...</p>
+              <p className="text-xs text-gray-500">
+                This runs sequentially to keep results consistent.
+              </p>
+            </div>
+          )}
+
+          {mode === "review" && (
+            <div className="space-y-4">
+              <div className="border rounded-lg p-4 bg-gray-50">
+                <h2 className="font-semibold mb-2">Review & Approve</h2>
+                <p className="text-sm text-gray-600">
+                  Confirm each extracted entry before saving to your transactions.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {queue.map((item) => (
+                  <div key={item.id} className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {item.file.fileName || item.file.filePath || "Receipt"}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Status:{" "}
+                          {item.status === "parsed"
+                            ? "Parsed"
+                            : item.status === "error"
+                              ? "Error"
+                              : item.status}
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-3">
+                        <label className="flex items-center space-x-2 text-xs text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={item.include !== false}
+                            onChange={(e) => updateQueueItem(item.id, { include: e.target.checked })}
+                          />
+                          <span>Include</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeFromQueue(item.id)}
+                          className="text-xs text-red-600 hover:text-red-500"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+
+                    {item.status === "error" ? (
+                      <div className="text-sm text-red-600">{item.error || "Failed to parse receipt"}</div>
+                    ) : item.status === "parsed" && item.parsed ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700">Amount</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={item.parsed.amount ?? ""}
+                            onChange={(e) =>
+                              updateQueueItem(item.id, {
+                                parsed: {
+                                  ...item.parsed!,
+                                  amount: parseFloat(e.target.value || "0"),
+                                },
+                              })
+                            }
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700">Date</label>
+                          <input
+                            type="date"
+                            value={item.parsed.transaction_date || ""}
+                            onChange={(e) =>
+                              updateQueueItem(item.id, {
+                                parsed: {
+                                  ...item.parsed!,
+                                  transaction_date: e.target.value,
+                                },
+                              })
+                            }
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="block text-xs font-medium text-gray-700">Description</label>
+                          <input
+                            type="text"
+                            value={item.parsed.description || ""}
+                            onChange={(e) =>
+                              updateQueueItem(item.id, {
+                                parsed: {
+                                  ...item.parsed!,
+                                  description: e.target.value,
+                                },
+                              })
+                            }
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700">Category</label>
+                          <input
+                            type="text"
+                            value={item.parsed.category || ""}
+                            onChange={(e) =>
+                              updateQueueItem(item.id, {
+                                parsed: {
+                                  ...item.parsed!,
+                                  category: e.target.value || null,
+                                },
+                              })
+                            }
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700">Payment Method</label>
+                          <select
+                            value={item.payment_method_id || paymentMethodId}
+                            onChange={(e) => updateQueueItem(item.id, { payment_method_id: e.target.value })}
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          >
+                            {paymentMethods.map((pm) => (
+                              <option key={pm.id} value={pm.id}>
+                                {pm.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-600">Waiting…</div>
+                    )}
                   </div>
-                </>
-              ) : (
-                <div className="text-center py-8">
-                  <p className="text-gray-600">Failed to extract transaction details</p>
+                ))}
+              </div>
+
+              {/* Duplicate detection for single-item review (keeps UX from exploding in batch mode) */}
+              {queue.filter((q) => q.include !== false && q.status === "parsed" && q.parsed).length === 1 && (
+                (() => {
+                  const only = queue.find((q) => q.include !== false && q.status === "parsed" && q.parsed);
+                  if (!only || !only.parsed) return null;
+                  const pmId = only.payment_method_id || paymentMethodId;
+                  if (!pmId || !only.parsed.amount || !only.parsed.transaction_date) return null;
+                  return (
+                    <DuplicateDetection
+                      amount={only.parsed.amount}
+                      transactionDate={only.parsed.transaction_date}
+                      paymentMethodId={pmId}
+                    />
+                  );
+                })()
+              )}
+
+              <div className="flex justify-between space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("upload");
+                    setQueue([]);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                  disabled={saving}
+                >
+                  Start Over
+                </button>
+                <div className="flex justify-end space-x-3">
                   <button
+                    type="button"
                     onClick={() => {
-                      setUploadedFile(null);
-                      setParsedTransaction(null);
+                      setMode("upload");
                     }}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                    disabled={saving}
                   >
-                    Try Again
+                    Add More Receipts
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {saving ? "Saving..." : "Save Selected"}
                   </button>
                 </div>
-              )}
-            </>
+              </div>
+            </div>
           )}
         </div>
       </div>
