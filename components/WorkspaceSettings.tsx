@@ -25,6 +25,9 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
   const [editingPrimaryCurrency, setEditingPrimaryCurrency] = useState<string>("USD");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetWorkspaceId, setResetWorkspaceId] = useState<string | null>(null);
+  const [resetConfirmName, setResetConfirmName] = useState("");
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     // Set editing currency when workspace changes
@@ -96,6 +99,35 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleStartFromScratch = async (workspaceId: string) => {
+    const workspace = workspaceList.find((w) => w.id === workspaceId);
+    if (!workspace) return;
+
+    setError(null);
+    setResetting(true);
+
+    try {
+      const response = await fetch(`/api/workspaces/${workspaceId}/reset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmName: resetConfirmName }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to reset workspace");
+      }
+
+      setResetWorkspaceId(null);
+      setResetConfirmName("");
+      window.location.href = "/transactions";
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -224,6 +256,83 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
           ))}
         </div>
       </div>
+
+      {workspaceList.some((w) => w.role === "owner") && (
+        <div className="bg-white shadow rounded-lg p-6 border border-red-200">
+          <h2 className="text-xl font-semibold mb-2 text-red-700">Start From Scratch</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Permanently delete all transactions in a workspace. Payment methods, categories,
+            and other settings are kept, but account balances will reset to their initial values.
+          </p>
+          <div className="space-y-3">
+            {workspaceList
+              .filter((w) => w.role === "owner")
+              .map((workspace) => (
+                <div key={workspace.id} className="border rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-gray-900">{workspace.name}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        This cannot be undone.
+                      </p>
+                    </div>
+                    {resetWorkspaceId !== workspace.id ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setResetWorkspaceId(workspace.id);
+                          setResetConfirmName("");
+                          setError(null);
+                        }}
+                        className="px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded hover:bg-red-50"
+                      >
+                        Reset Transactions
+                      </button>
+                    ) : null}
+                  </div>
+                  {resetWorkspaceId === workspace.id && (
+                    <div className="mt-4 p-4 bg-red-50 rounded-lg space-y-3">
+                      <p className="text-sm text-red-800">
+                        Type <span className="font-semibold">{workspace.name}</span> to confirm
+                        you want to delete all transactions in this workspace.
+                      </p>
+                      <input
+                        type="text"
+                        value={resetConfirmName}
+                        onChange={(e) => setResetConfirmName(e.target.value)}
+                        placeholder={workspace.name}
+                        className="block w-full px-3 py-2 border border-red-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500 sm:text-sm"
+                      />
+                      <div className="flex justify-end space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setResetWorkspaceId(null);
+                            setResetConfirmName("");
+                          }}
+                          disabled={resetting}
+                          className="px-3 py-1.5 text-sm border border-gray-300 rounded text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStartFromScratch(workspace.id)}
+                          disabled={
+                            resetting || resetConfirmName.trim() !== workspace.name
+                          }
+                          className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {resetting ? "Deleting..." : "Delete All Transactions"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white shadow rounded-lg p-6">
         <h2 className="text-xl font-semibold mb-4">Create New Workspace</h2>

@@ -1,10 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import FileUpload from "@/components/FileUpload";
 import DuplicateDetection from "@/components/DuplicateDetection";
+import {
+  deleteUploadedFile,
+  deleteUploadedFiles,
+} from "@/lib/utils/delete-uploaded-file";
 
 interface ParsedTransaction {
   amount: number;
@@ -70,9 +74,20 @@ export default function ReceiptUploadPage() {
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [primaryCurrency, setPrimaryCurrency] = useState("USD");
   const [error, setError] = useState<string | null>(null);
+  const queueRef = useRef(queue);
+  const savedSuccessfullyRef = useRef(false);
+
+  queueRef.current = queue;
 
   useEffect(() => {
     fetchPaymentMethods();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (savedSuccessfullyRef.current) return;
+      void deleteUploadedFiles(queueRef.current.map((item) => item.file));
+    };
   }, []);
 
   const fetchPaymentMethods = async () => {
@@ -169,17 +184,28 @@ export default function ReceiptUploadPage() {
   };
 
   const removeFromQueue = (id: string) => {
+    const item = queue.find((q) => q.id === id);
+    if (item?.file) {
+      void deleteUploadedFile(item.file);
+    }
     setQueue((prev) => prev.filter((q) => q.id !== id));
+  };
+
+  const clearQueue = () => {
+    void deleteUploadedFiles(queue.map((item) => item.file));
+    setQueue([]);
   };
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
 
+    const toSave = queue.filter(
+      (q) => q.include !== false && q.status === "parsed" && q.parsed
+    );
+    const savedIds = new Set<string>();
+
     try {
-      const toSave = queue.filter(
-        (q) => q.include !== false && q.status === "parsed" && q.parsed
-      );
       if (toSave.length === 0) {
         throw new Error("No parsed receipts selected to save");
       }
@@ -210,10 +236,21 @@ export default function ReceiptUploadPage() {
           const data = await response.json();
           throw new Error(data.error || "Failed to save one or more transactions");
         }
+
+        savedIds.add(item.id);
+        await deleteUploadedFile(item.file);
       }
 
+      const unsavedItems = queue.filter((q) => !savedIds.has(q.id));
+      await deleteUploadedFiles(unsavedItems.map((item) => item.file));
+
+      savedSuccessfullyRef.current = true;
+      setQueue([]);
       router.push("/transactions");
     } catch (err: any) {
+      const unsavedItems = queue.filter((q) => !savedIds.has(q.id));
+      await deleteUploadedFiles(unsavedItems.map((item) => item.file));
+      setQueue((prev) => prev.filter((q) => savedIds.has(q.id)));
       setError(err.message);
     } finally {
       setSaving(false);
@@ -260,7 +297,7 @@ export default function ReceiptUploadPage() {
               </p>
               <button
                 type="button"
-                onClick={() => setQueue([])}
+                onClick={clearQueue}
                 className="text-xs text-red-600 hover:text-red-500"
               >
                 Clear
@@ -609,8 +646,8 @@ export default function ReceiptUploadPage() {
         <button
           type="button"
           onClick={() => {
+            clearQueue();
             setMode("upload");
-            setQueue([]);
           }}
           className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
           disabled={saving}
