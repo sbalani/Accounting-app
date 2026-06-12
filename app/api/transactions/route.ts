@@ -4,18 +4,26 @@ import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
 import { getExchangeRateForDate, convertAmount } from "@/lib/utils/currency";
 import { buildIlikeOrFilter } from "@/lib/utils/postgrest-filters";
 
+type TransactionListFilters = {
+  workspaceId: string;
+  paymentMethodId: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  transactionType: string | null;
+  search: string | null;
+};
+
+type FilterableQuery = {
+  eq: (column: string, value: string) => FilterableQuery;
+  gte: (column: string, value: string) => FilterableQuery;
+  lte: (column: string, value: string) => FilterableQuery;
+  or: (filters: string) => FilterableQuery;
+};
+
 function applyTransactionFilters(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query: any,
-  filters: {
-    workspaceId: string;
-    paymentMethodId: string | null;
-    startDate: string | null;
-    endDate: string | null;
-    transactionType: string | null;
-    search: string | null;
-  }
-) {
+  query: FilterableQuery,
+  filters: TransactionListFilters
+): FilterableQuery {
   let q = query.eq("workspace_id", filters.workspaceId);
 
   if (filters.paymentMethodId) {
@@ -74,9 +82,8 @@ export async function GET(request: Request) {
     search,
   };
 
-  let query = applyTransactionFilters(
-    supabase.from("transactions").select(
-      `
+  const baseQuery = supabase.from("transactions").select(
+    `
       *,
       transaction_tag_assignments:transaction_tag_assignments (
         tag:transaction_tags (
@@ -87,9 +94,11 @@ export async function GET(request: Request) {
         )
       )
     `,
-      { count: limit !== null ? "exact" : undefined }
-    ),
-    filters
+    { count: limit !== null ? "exact" : undefined }
+  );
+
+  let query = (
+    applyTransactionFilters(baseQuery as unknown as FilterableQuery, filters) as unknown as typeof baseQuery
   )
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -205,10 +214,11 @@ export async function GET(request: Request) {
 
     let summary = { income: 0, expense: 0 };
     if (limit !== null) {
-      let summaryQuery = applyTransactionFilters(
-        supabase.from("transactions").select("amount, transaction_type"),
+      const summaryBase = supabase.from("transactions").select("amount, transaction_type");
+      const summaryQuery = applyTransactionFilters(
+        summaryBase as unknown as FilterableQuery,
         filters
-      );
+      ) as unknown as typeof summaryBase;
       const { data: summaryRows } = await summaryQuery;
       for (const tx of summaryRows || []) {
         if (tx.transaction_type === "transfer") continue;
