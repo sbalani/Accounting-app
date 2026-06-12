@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
 
 export async function GET() {
   const supabase = await createClient();
@@ -27,8 +28,9 @@ export async function GET() {
     role: wm.role,
   })) || [];
 
-  // Get current workspace (first one for now, can be improved with user preference)
-  const currentWorkspace = workspaces[0] || null;
+  const currentWorkspaceId = await getCurrentWorkspaceId();
+  const currentWorkspace =
+    workspaces.find((w) => w.id === currentWorkspaceId) || workspaces[0] || null;
 
   return NextResponse.json({
     workspaces,

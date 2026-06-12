@@ -1,4 +1,6 @@
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { WORKSPACE_COOKIE_NAME } from "@/lib/utils/workspace-cookie";
 
 export async function getCurrentWorkspaceId(): Promise<string | null> {
   const supabase = await createClient();
@@ -10,13 +12,22 @@ export async function getCurrentWorkspaceId(): Promise<string | null> {
     return null;
   }
 
-  // Get user's first workspace (can be improved with user preference storage)
-  const { data: workspaceMember } = await supabase
+  const { data: memberships } = await supabase
     .from("workspace_members")
     .select("workspace_id")
     .eq("user_id", user.id)
-    .limit(1)
-    .maybeSingle();
+    .order("joined_at", { ascending: false });
 
-  return workspaceMember?.workspace_id || null;
+  const memberIds = (memberships || []).map((m) => m.workspace_id);
+  if (memberIds.length === 0) {
+    return null;
+  }
+
+  const cookieStore = await cookies();
+  const preferredId = cookieStore.get(WORKSPACE_COOKIE_NAME)?.value;
+  if (preferredId && memberIds.includes(preferredId)) {
+    return preferredId;
+  }
+
+  return memberIds[0];
 }

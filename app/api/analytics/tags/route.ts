@@ -34,7 +34,8 @@ export async function GET(request: Request) {
         )
       `
       )
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .neq("transaction_type", "transfer");
 
     if (startDate) {
       query = query.gte("transaction_date", startDate);

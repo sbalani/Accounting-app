@@ -3,6 +3,15 @@ import { createClient } from "@/lib/supabase/server";
 import { heicBufferToJpeg, isHeicFormat } from "@/lib/utils/heic-to-jpeg";
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -26,7 +35,6 @@ export async function POST(request: Request) {
 
     // If we have a filePath, download the file from Supabase Storage
     if (filePath) {
-      const supabase = await createClient();
       // Parse bucket name and path
       // filePath format: "receipts/user_id/workspace_id/type/timestamp.ext" or just the path part
       const bucketName = filePath.startsWith('receipts/') ? 'receipts' : 

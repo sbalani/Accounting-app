@@ -122,6 +122,9 @@ export default function CategorizationRulesPage() {
     <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div className="px-4 py-6 sm:px-0">
         <div className="mb-6">
+          <Link href="/settings" className="text-sm text-blue-600 hover:text-blue-500 mb-4 inline-block">
+            ← Back to Settings
+          </Link>
           <h1 className="text-3xl font-bold text-gray-900">Categorization Rules</h1>
           <p className="mt-2 text-sm text-gray-600">
             Manage automatic transaction categorization rules

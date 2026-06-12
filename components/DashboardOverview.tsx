@@ -8,35 +8,39 @@ interface DashboardOverviewProps {
   workspaceId: string | null;
 }
 
+interface DashboardSummary {
+  primaryCurrency: string;
+  mtd: { start: string; end: string; income: number; expense: number; net: number };
+  netWorth: { assets: number; liabilities: number; total: number };
+  monthlySubscriptions: number;
+  activeSubscriptionCount: number;
+  paymentMethods: Array<{ id: string; name: string; type: string; current_balance: number }>;
+  recentTransactions: Array<{
+    id: string;
+    amount: number;
+    description: string | null;
+    transaction_date: string;
+  }>;
+}
+
 export default function DashboardOverview({ workspaceId }: DashboardOverviewProps) {
-  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
 
   useEffect(() => {
     if (workspaceId) {
       fetchData();
+    } else {
+      setLoading(false);
     }
   }, [workspaceId]);
 
   const fetchData = async () => {
     try {
-      const [paymentMethodsRes, transactionsRes] = await Promise.all([
-        fetch("/api/payment-methods"),
-        fetch("/api/transactions?limit=5"),
-      ]);
-
-      if (paymentMethodsRes.ok) {
-        const data = await paymentMethodsRes.json();
-        setPaymentMethods(data.paymentMethods || []);
-        setPrimaryCurrency(data.primaryCurrency || "USD");
-      }
-
-      if (transactionsRes.ok) {
-        const data = await transactionsRes.json();
-        setTransactions(data.transactions || []);
-        setPrimaryCurrency(data.primaryCurrency || primaryCurrency || "USD");
+      const response = await fetch("/api/dashboard/summary");
+      if (response.ok) {
+        const data = await response.json();
+        setSummary(data);
       }
     } catch (err) {
       console.error("Error fetching dashboard data:", err);
@@ -45,37 +49,63 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
     }
   };
 
+  if (!workspaceId) {
+    return (
+      <p className="text-gray-500 text-center py-8">
+        No workspace found. Create one in Settings.
+      </p>
+    );
+  }
+
   if (loading) {
     return <div className="text-center py-8">Loading...</div>;
   }
 
-  const totalBalance = paymentMethods.reduce((sum, pm) => sum + pm.current_balance, 0);
-  const totalExpenses = transactions
-    .filter((t) => t.amount < 0)
-    .reduce((sum, t) => sum + t.amount, 0);
-  const totalIncome = transactions
-    .filter((t) => t.amount > 0)
-    .reduce((sum, t) => sum + t.amount, 0);
+  if (!summary) {
+    return <div className="text-center py-8 text-gray-500">Failed to load dashboard</div>;
+  }
+
+  const { primaryCurrency, mtd, netWorth, monthlySubscriptions, activeSubscriptionCount } =
+    summary;
+  const monthLabel = new Date().toLocaleString("default", { month: "long", year: "numeric" });
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <p className="text-sm text-gray-500">{monthLabel} overview</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white shadow rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-600 mb-2">Total Balance</h2>
+          <h2 className="text-sm font-medium text-gray-600 mb-1">Net Worth</h2>
           <p className="text-3xl font-bold text-gray-900">
-            {formatCurrency(totalBalance, primaryCurrency)}
+            {formatCurrency(netWorth.total, primaryCurrency)}
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            Assets {formatCurrency(netWorth.assets, primaryCurrency)} · Debt{" "}
+            {formatCurrency(netWorth.liabilities, primaryCurrency)}
           </p>
         </div>
         <div className="bg-white shadow rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-600 mb-2">Total Income</h2>
+          <h2 className="text-sm font-medium text-gray-600 mb-1">Income (MTD)</h2>
           <p className="text-3xl font-bold text-green-600">
-            {formatCurrency(totalIncome, primaryCurrency)}
+            {formatCurrency(mtd.income, primaryCurrency)}
           </p>
         </div>
         <div className="bg-white shadow rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-gray-600 mb-2">Total Expenses</h2>
+          <h2 className="text-sm font-medium text-gray-600 mb-1">Expenses (MTD)</h2>
           <p className="text-3xl font-bold text-red-600">
-            {formatCurrency(totalExpenses, primaryCurrency)}
+            {formatCurrency(mtd.expense, primaryCurrency)}
+          </p>
+        </div>
+        <div className="bg-white shadow rounded-lg p-6">
+          <h2 className="text-sm font-medium text-gray-600 mb-1">Subscriptions</h2>
+          <p className="text-3xl font-bold text-purple-700">
+            {formatCurrency(monthlySubscriptions, primaryCurrency)}
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            {activeSubscriptionCount} active ·{" "}
+            <Link href="/subscriptions" className="text-blue-600 hover:text-blue-500">
+              Manage
+            </Link>
           </p>
         </div>
       </div>
@@ -83,19 +113,16 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white shadow rounded-lg p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Payment Methods</h2>
-            <Link
-              href="/accounts"
-              className="text-sm text-blue-600 hover:text-blue-500"
-            >
+            <h2 className="text-lg font-semibold text-gray-900">Accounts</h2>
+            <Link href="/accounts" className="text-sm text-blue-600 hover:text-blue-500">
               View All
             </Link>
           </div>
-          {paymentMethods.length === 0 ? (
-            <p className="text-gray-500 text-sm">No payment methods yet</p>
+          {summary.paymentMethods.length === 0 ? (
+            <p className="text-gray-500 text-sm">No accounts yet</p>
           ) : (
             <div className="space-y-2">
-              {paymentMethods.slice(0, 5).map((pm) => (
+              {summary.paymentMethods.slice(0, 5).map((pm) => (
                 <div key={pm.id} className="flex justify-between items-center">
                   <span className="text-sm text-gray-900">{pm.name}</span>
                   <span
@@ -116,18 +143,15 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
         <div className="bg-white shadow rounded-lg p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Recent Transactions</h2>
-            <Link
-              href="/transactions"
-              className="text-sm text-blue-600 hover:text-blue-500"
-            >
+            <Link href="/transactions" className="text-sm text-blue-600 hover:text-blue-500">
               View All
             </Link>
           </div>
-          {transactions.length === 0 ? (
+          {summary.recentTransactions.length === 0 ? (
             <p className="text-gray-500 text-sm">No transactions yet</p>
           ) : (
             <div className="space-y-2">
-              {transactions.map((t) => (
+              {summary.recentTransactions.map((t) => (
                 <div key={t.id} className="flex justify-between items-center">
                   <div>
                     <p className="text-sm text-gray-900">

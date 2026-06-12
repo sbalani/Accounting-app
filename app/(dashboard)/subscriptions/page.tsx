@@ -56,6 +56,14 @@ export default function SubscriptionsPage() {
 
   useEffect(() => {
     fetchSubscriptions();
+    fetch("/api/workspaces/current")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.workspace?.primary_currency) {
+          setPrimaryCurrency(data.workspace.primary_currency);
+        }
+      })
+      .catch(() => {});
   }, [fetchSubscriptions]);
 
   const [editingId, setEditingId] = useState<string | null>(null);

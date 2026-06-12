@@ -60,6 +60,12 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [transactionType, setTransactionType] = useState<string>("");
+  const [search, setSearch] = useState<string>("");
+  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [summary, setSummary] = useState<{ income: number; expense: number } | null>(null);
+  const PAGE_SIZE = 50;
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
   const [categories, setCategories] = useState<Category[]>([]);
@@ -138,25 +144,31 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
       if (effectivePaymentMethod) {
         params.append("payment_method_id", effectivePaymentMethod);
       }
-      
+
       if (transactionType) {
         params.append("transaction_type", transactionType);
       }
-      
-      // Handle date range
+
+      if (debouncedSearch) {
+        params.append("search", debouncedSearch);
+      }
+
+      params.append("limit", String(PAGE_SIZE));
+      params.append("page", String(page));
+
       let finalStartDate = startDate;
       let finalEndDate = endDate;
-      
+
       if (datePreset && datePreset !== "custom") {
         const range = getDatePresetRange(datePreset);
         finalStartDate = range.startDate;
         finalEndDate = range.endDate;
       }
-      
+
       if (finalStartDate) {
         params.append("start_date", finalStartDate);
       }
-      
+
       if (finalEndDate) {
         params.append("end_date", finalEndDate);
       }
@@ -168,6 +180,8 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
       }
       const data = await response.json();
       setTransactions(data.transactions || []);
+      setTotal(data.total ?? 0);
+      setSummary(data.summary ?? null);
       setOpeningBalance(
         data.openingBalance != null ? Number(data.openingBalance) : null
       );
@@ -187,7 +201,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
     } finally {
       setLoading(false);
     }
-  }, [paymentMethodId, filterPaymentMethod, datePreset, startDate, endDate, transactionType]);
+  }, [paymentMethodId, filterPaymentMethod, datePreset, startDate, endDate, transactionType, debouncedSearch, page]);
 
   useEffect(() => {
     fetchPaymentMethods();
@@ -199,6 +213,15 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterPaymentMethod, datePreset, startDate, endDate, transactionType, paymentMethodId]);
 
   // Update date inputs when preset changes
   useEffect(() => {
@@ -685,12 +708,13 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
     );
   }
 
-  const totalExpenses = transactions
-    .filter((t) => t.amount < 0)
-    .reduce((sum, t) => sum + t.amount, 0);
-  const totalIncome = transactions
-    .filter((t) => t.amount > 0)
-    .reduce((sum, t) => sum + t.amount, 0);
+  const totalExpenses =
+    summary?.expense ??
+    transactions.filter((t) => t.amount < 0).reduce((sum, t) => sum + t.amount, 0);
+  const totalIncome =
+    summary?.income ??
+    transactions.filter((t) => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const effectiveAccount = paymentMethodId || filterPaymentMethod;
   const showBalance = !!effectiveAccount && openingBalance != null;
@@ -720,6 +744,18 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
           </p>
         )}
         <div className="space-y-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Search
+            </label>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Description, merchant, or category..."
+              className="block w-full px-3 py-2 border border-gray-300 bg-white text-gray-900 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            />
+          </div>
           <div className={`grid grid-cols-1 gap-4 ${paymentMethodId ? "md:grid-cols-2 lg:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-4"}`}>
             {!paymentMethodId && (
               <div>
@@ -1020,7 +1056,10 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
                             <div className="max-h-64 overflow-y-auto py-1">
                               {tags.length === 0 ? (
                                 <div className="px-3 py-2 text-xs text-gray-500">
-                                  No tags yet. Create some on the Tag Analytics page.
+                                  No tags yet.{" "}
+                                  <Link href="/analytics/tags" className="text-blue-600 hover:text-blue-500">
+                                    Create tags
+                                  </Link>
                                 </div>
                               ) : (
                                 tags.map((tag) => {
@@ -1148,6 +1187,35 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
             </tbody>
             </table>
           </div>
+
+          {total > PAGE_SIZE && (
+            <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
+              <p className="text-sm text-gray-600">
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+              </p>
+              <div className="flex space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1 || loading}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="px-3 py-1 text-sm text-gray-600">
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages || loading}
+                  className="px-3 py-1 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

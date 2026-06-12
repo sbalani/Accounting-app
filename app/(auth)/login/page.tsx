@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { resolveSafeRedirect } from "@/lib/utils/safe-redirect";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,7 +27,8 @@ export default function LoginPage() {
 
       if (error) throw error;
 
-      router.push("/dashboard");
+      const redirect = new URLSearchParams(window.location.search).get("redirect");
+      router.push(resolveSafeRedirect(redirect));
       router.refresh();
     } catch (error: any) {
       setError(error.message || "An error occurred during login");

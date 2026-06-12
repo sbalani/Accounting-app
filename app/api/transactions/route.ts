@@ -2,9 +2,52 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
 import { getExchangeRateForDate, convertAmount } from "@/lib/utils/currency";
+import { buildIlikeOrFilter } from "@/lib/utils/postgrest-filters";
+
+function applyTransactionFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  filters: {
+    workspaceId: string;
+    paymentMethodId: string | null;
+    startDate: string | null;
+    endDate: string | null;
+    transactionType: string | null;
+    search: string | null;
+  }
+) {
+  let q = query.eq("workspace_id", filters.workspaceId);
+
+  if (filters.paymentMethodId) {
+    q = q.eq("payment_method_id", filters.paymentMethodId);
+  }
+  if (filters.startDate) {
+    q = q.gte("transaction_date", filters.startDate);
+  }
+  if (filters.endDate) {
+    q = q.lte("transaction_date", filters.endDate);
+  }
+  if (filters.transactionType) {
+    q = q.eq("transaction_type", filters.transactionType);
+  }
+  if (filters.search) {
+    q = q.or(
+      buildIlikeOrFilter(["description", "merchant", "category"], filters.search)
+    );
+  }
+  return q;
+}
 
 export async function GET(request: Request) {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const workspaceId = await getCurrentWorkspaceId();
 
   if (!workspaceId) {
@@ -15,11 +58,24 @@ export async function GET(request: Request) {
   const paymentMethodId = searchParams.get("payment_method_id");
   const startDate = searchParams.get("start_date");
   const endDate = searchParams.get("end_date");
-  const transactionType = searchParams.get("transaction_type"); // 'income', 'expense', or 'transfer'
+  const transactionType = searchParams.get("transaction_type");
+  const search = searchParams.get("search")?.trim() || null;
+  const limitParam = searchParams.get("limit");
+  const pageParam = searchParams.get("page");
+  const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 50, 1), 200) : null;
+  const page = pageParam ? Math.max(parseInt(pageParam, 10) || 1, 1) : 1;
 
-  let query = supabase
-    .from("transactions")
-    .select(
+  const filters = {
+    workspaceId,
+    paymentMethodId,
+    startDate,
+    endDate,
+    transactionType,
+    search,
+  };
+
+  let query = applyTransactionFilters(
+    supabase.from("transactions").select(
       `
       *,
       transaction_tag_assignments:transaction_tag_assignments (
@@ -30,30 +86,21 @@ export async function GET(request: Request) {
           exclude_from_analytics
         )
       )
-    `
-    )
-    .eq("workspace_id", workspaceId)
+    `,
+      { count: limit !== null ? "exact" : undefined }
+    ),
+    filters
+  )
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
 
-  if (paymentMethodId) {
-    query = query.eq("payment_method_id", paymentMethodId);
-  }
-
-  if (startDate) {
-    query = query.gte("transaction_date", startDate);
-  }
-
-  if (endDate) {
-    query = query.lte("transaction_date", endDate);
-  }
-
-  if (transactionType) {
-    query = query.eq("transaction_type", transactionType);
+  if (limit !== null) {
+    const offset = (page - 1) * limit;
+    query = query.range(offset, offset + limit - 1);
   }
 
   try {
-    const { data: transactions, error } = await query;
+    const { data: transactions, error, count } = await query;
 
     if (error) {
       console.error("Error fetching transactions:", error);
@@ -156,11 +203,40 @@ export async function GET(request: Request) {
       })
     );
 
-    const res: { transactions: typeof transactionsWithRelations; primaryCurrency: string; openingBalance?: number } = {
+    let summary = { income: 0, expense: 0 };
+    if (limit !== null) {
+      let summaryQuery = applyTransactionFilters(
+        supabase.from("transactions").select("amount, transaction_type"),
+        filters
+      );
+      const { data: summaryRows } = await summaryQuery;
+      for (const tx of summaryRows || []) {
+        if (tx.transaction_type === "transfer") continue;
+        const amount = Number(tx.amount) || 0;
+        if (amount > 0) summary.income += amount;
+        else if (amount < 0) summary.expense += amount;
+      }
+    }
+
+    const res: {
+      transactions: typeof transactionsWithRelations;
+      primaryCurrency: string;
+      openingBalance?: number;
+      total?: number;
+      page?: number;
+      limit?: number;
+      summary?: typeof summary;
+    } = {
       transactions: transactionsWithRelations,
       primaryCurrency: workspace?.primary_currency || "USD",
     };
     if (openingBalance != null) res.openingBalance = openingBalance;
+    if (limit !== null) {
+      res.total = count ?? 0;
+      res.page = page;
+      res.limit = limit;
+      res.summary = summary;
+    }
     return NextResponse.json(res);
   } catch (error: any) {
     console.error("Unexpected error in GET /api/transactions:", error);

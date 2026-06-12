@@ -18,7 +18,8 @@ export async function GET(request: Request) {
     let query = supabase
       .from("transactions")
       .select("id, amount, transaction_date, category_id")
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .neq("transaction_type", "transfer");
 
     if (startDate) {
       query = query.gte("transaction_date", startDate);

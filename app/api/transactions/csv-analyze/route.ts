@@ -13,6 +13,15 @@ import {
  * Analyzes a CSV or XLSX file and returns header detection and column mapping suggestions
  */
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { file_url, file_path, file_type } = await request.json();
 
   if (!file_url && !file_path) {

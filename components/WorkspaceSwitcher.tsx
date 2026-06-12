@@ -39,11 +39,19 @@ export default function WorkspaceSwitcher() {
     fetchWorkspaces();
   }, []);
 
-  const handleWorkspaceChange = (workspaceId: string) => {
-    // Store selected workspace in localStorage or cookie
-    localStorage.setItem("currentWorkspaceId", workspaceId);
-    setCurrentWorkspaceId(workspaceId);
-    router.refresh();
+  const handleWorkspaceChange = async (workspaceId: string) => {
+    try {
+      const response = await fetch("/api/workspaces/current", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
+      if (!response.ok) return;
+      setCurrentWorkspaceId(workspaceId);
+      router.refresh();
+    } catch (error) {
+      console.error("Error switching workspace:", error);
+    }
   };
 
   if (loading) {

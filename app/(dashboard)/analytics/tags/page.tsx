@@ -174,10 +174,10 @@ export default function TagAnalyticsPage() {
             </p>
           </div>
           <Link
-            href="/transactions"
+            href="/settings"
             className="text-sm text-blue-600 hover:text-blue-500"
           >
-            ← Back to Transactions
+            ← Back to Settings
           </Link>
         </div>
 
