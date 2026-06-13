@@ -38,7 +38,8 @@ export async function PATCH(
     return NextResponse.json({ error: "No workspace found" }, { status: 404 });
   }
 
-  const { name, type, csv_import_config, currency, bank_account_number } = await request.json();
+  const { name, type, csv_import_config, currency, bank_account_number, initial_balance } =
+    await request.json();
 
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = name.trim();
@@ -61,6 +62,23 @@ export async function PATCH(
     updateData.bank_account_number = bank_account_number === null || String(bank_account_number).trim() === ""
       ? null
       : String(bank_account_number).trim();
+  }
+
+  if (initial_balance !== undefined) {
+    const newInitial = parseFloat(initial_balance) || 0;
+    updateData.initial_balance = newInitial;
+
+    const { data: transactions } = await supabase
+      .from("transactions")
+      .select("amount")
+      .eq("payment_method_id", params.id)
+      .eq("workspace_id", workspaceId);
+
+    const transactionSum = (transactions || []).reduce(
+      (sum, t) => sum + Number(t.amount),
+      0
+    );
+    updateData.current_balance = newInitial + transactionSum;
   }
 
   const { data: paymentMethod, error } = await supabase
@@ -89,16 +107,46 @@ export async function DELETE(
     return NextResponse.json({ error: "No workspace found" }, { status: 404 });
   }
 
-  // Check if there are any transactions using this payment method
+  const blockers: string[] = [];
+
   const { data: transactions } = await supabase
     .from("transactions")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .or(
+      `payment_method_id.eq.${params.id},transfer_from_id.eq.${params.id},transfer_to_id.eq.${params.id}`
+    )
+    .limit(1);
+
+  if (transactions && transactions.length > 0) {
+    blockers.push("transactions");
+  }
+
+  const { data: subscriptions } = await supabase
+    .from("subscriptions")
     .select("id")
     .eq("payment_method_id", params.id)
     .limit(1);
 
-  if (transactions && transactions.length > 0) {
+  if (subscriptions && subscriptions.length > 0) {
+    blockers.push("subscriptions");
+  }
+
+  const { data: transferRules } = await supabase
+    .from("transfer_rules")
+    .select("id")
+    .eq("target_payment_method_id", params.id)
+    .limit(1);
+
+  if (transferRules && transferRules.length > 0) {
+    blockers.push("transfer rules");
+  }
+
+  if (blockers.length > 0) {
     return NextResponse.json(
-      { error: "Cannot delete payment method with existing transactions" },
+      {
+        error: `Cannot delete this account while it is linked to ${blockers.join(", ")}. Remove those first.`,
+      },
       { status: 400 }
     );
   }

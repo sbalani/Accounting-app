@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/utils/currency";
 import TransactionsList from "@/components/TransactionsList";
@@ -11,6 +11,7 @@ interface PaymentMethod {
   name: string;
   type: "cash" | "bank_account" | "credit_card";
   current_balance: number;
+  initial_balance: number;
   currency: string;
   bank_account_number?: string | null;
 }
@@ -30,11 +31,13 @@ function getTypeLabel(type: string) {
 
 export default function AccountDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,6 +67,30 @@ export default function AccountDetailPage() {
       fetchAccount();
     }
   }, [id]);
+
+  const handleDelete = async () => {
+    if (
+      !confirm(
+        `Delete "${paymentMethod?.name}"? This cannot be undone. The account must have no transactions or subscriptions.`
+      )
+    ) {
+      return;
+    }
+
+    setDeleting(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/payment-methods/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to delete account");
+      }
+      router.push("/accounts");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to delete account");
+      setDeleting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -124,6 +151,14 @@ export default function AccountDetailPage() {
               >
                 Edit account
               </Link>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
+              >
+                {deleting ? "Deleting..." : "Delete account"}
+              </button>
               <Link
                 href="/transactions/new"
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
@@ -148,6 +183,15 @@ export default function AccountDetailPage() {
           {paymentMethod.currency !== primaryCurrency && (
             <p className="text-sm text-gray-500 mt-1">
               ({formatCurrency(paymentMethod.current_balance, paymentMethod.currency)} in account currency)
+            </p>
+          )}
+          {paymentMethod.initial_balance !== 0 && (
+            <p className="text-sm text-gray-500 mt-2">
+              Includes opening balance of{" "}
+              {formatCurrency(paymentMethod.initial_balance, paymentMethod.currency)}.{" "}
+              <Link href={`/accounts/${id}/edit`} className="text-blue-600 hover:text-blue-500">
+                Edit opening balance
+              </Link>
             </p>
           )}
         </div>

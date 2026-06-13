@@ -27,9 +27,11 @@ export default function EditPaymentMethodPage() {
   const [type, setType] = useState<"cash" | "bank_account" | "credit_card">("bank_account");
   const [currency, setCurrency] = useState<string>("USD");
   const [bankAccountNumber, setBankAccountNumber] = useState("");
+  const [initialBalance, setInitialBalance] = useState("0");
   const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export default function EditPaymentMethodPage() {
         setType(data.paymentMethod.type);
         setCurrency(data.paymentMethod.currency || "USD");
         setBankAccountNumber(data.paymentMethod.bank_account_number || "");
+        setInitialBalance(String(data.paymentMethod.initial_balance ?? 0));
 
         const pmResponse = await fetch("/api/payment-methods");
         if (pmResponse.ok) {
@@ -79,6 +82,7 @@ export default function EditPaymentMethodPage() {
           type,
           currency,
           bank_account_number: bankAccountNumber.trim() || null,
+          initial_balance: parseFloat(initialBalance) || 0,
         }),
       });
 
@@ -92,6 +96,30 @@ export default function EditPaymentMethodPage() {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (
+      !confirm(
+        `Delete "${paymentMethod?.name}"? This cannot be undone. The account must have no transactions or subscriptions.`
+      )
+    ) {
+      return;
+    }
+
+    setDeleting(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/payment-methods/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Failed to delete account");
+      }
+      router.push("/accounts");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to delete account");
+      setDeleting(false);
     }
   };
 
@@ -199,6 +227,24 @@ export default function EditPaymentMethodPage() {
             </div>
 
             <div>
+              <label htmlFor="initialBalance" className="block text-sm font-medium text-gray-700">
+                Opening Balance
+              </label>
+              <input
+                id="initialBalance"
+                type="number"
+                step="0.01"
+                value={initialBalance}
+                onChange={(e) => setInitialBalance(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              />
+              <p className="mt-1 text-sm text-gray-500">
+                Starting balance before any transactions. Current balance is recalculated from
+                this plus all transactions on this account.
+              </p>
+            </div>
+
+            <div>
               <label htmlFor="currency" className="block text-sm font-medium text-gray-700">
                 Currency
               </label>
@@ -220,20 +266,30 @@ export default function EditPaymentMethodPage() {
               </p>
             </div>
 
-            <div className="flex justify-end space-x-3">
-              <Link
-                href={`/accounts/${id}`}
-                className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-              >
-                Cancel
-              </Link>
+            <div className="flex justify-between items-center pt-2">
               <button
-                type="submit"
-                disabled={saving}
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting || saving}
+                className="px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50 disabled:opacity-50"
               >
-                {saving ? "Saving..." : "Save Changes"}
+                {deleting ? "Deleting..." : "Delete Account"}
               </button>
+              <div className="flex space-x-3">
+                <Link
+                  href={`/accounts/${id}`}
+                  className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Cancel
+                </Link>
+                <button
+                  type="submit"
+                  disabled={saving || deleting}
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
             </div>
           </form>
         </div>

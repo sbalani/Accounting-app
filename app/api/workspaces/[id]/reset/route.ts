@@ -63,13 +63,17 @@ export async function POST(
     return NextResponse.json({ error: deleteError.message }, { status: 500 });
   }
 
-  const { error: resetImportError } = await supabase
+  const { error: resetAccountsError } = await supabase
     .from("payment_methods")
-    .update({ last_statement_imported_through: null })
+    .update({
+      last_statement_imported_through: null,
+      initial_balance: 0,
+      current_balance: 0,
+    })
     .eq("workspace_id", params.id);
 
-  if (resetImportError) {
-    return NextResponse.json({ error: resetImportError.message }, { status: 500 });
+  if (resetAccountsError) {
+    return NextResponse.json({ error: resetAccountsError.message }, { status: 500 });
   }
 
   return NextResponse.json({

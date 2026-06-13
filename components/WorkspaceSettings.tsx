@@ -261,8 +261,8 @@ export default function WorkspaceSettings({ workspaces }: WorkspaceSettingsProps
         <div className="bg-white shadow rounded-lg p-6 border border-red-200">
           <h2 className="text-xl font-semibold mb-2 text-red-700">Start From Scratch</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Permanently delete all transactions in a workspace. Payment methods, categories,
-            and other settings are kept, but account balances will reset to their initial values.
+            Permanently delete all transactions in a workspace. Accounts, categories,
+            and other settings are kept, but all account balances are reset to zero.
           </p>
           <div className="space-y-3">
             {workspaceList
