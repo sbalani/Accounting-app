@@ -45,24 +45,7 @@ export async function POST(request: Request) {
 
       audioFile = file;
     } else {
-      // Legacy: support audioUrl for backwards compatibility
-      const { audioUrl } = await request.json();
-
-      if (!audioUrl) {
-        return NextResponse.json(
-          { error: "Audio file or URL is required" },
-          { status: 400 }
-        );
-      }
-
-      // Fetch the audio file
-      const audioResponse = await fetch(audioUrl);
-      if (!audioResponse.ok) {
-        throw new Error("Failed to fetch audio file");
-      }
-
-      const audioBlob = await audioResponse.blob();
-      audioFile = new File([audioBlob], "audio.webm", { type: "audio/webm" });
+      return NextResponse.json({ error: "Upload an audio file directly" }, { status: 400 });
     }
 
     // Use OpenAI Audio API for transcription

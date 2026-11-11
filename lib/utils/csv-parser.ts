@@ -458,54 +458,17 @@ export function getCSVPreview(csvContent: string, maxRows: number = 10): string[
  * Converts XLSX file buffer to a 2D array (rows and columns)
  */
 export function parseXLSXToArray(buffer: ArrayBuffer): string[][] {
-  const workbook = XLSX.read(buffer, { type: "array" });
-  const firstSheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[firstSheetName];
-  
-  // Convert to JSON array format
-  // Use raw: true to get actual values, then we'll format dates ourselves
-  const jsonData = XLSX.utils.sheet_to_json(worksheet, { 
-    header: 1, 
-    defval: "",
-    raw: true 
-  }) as any[][];
-  
-  // Convert all values to strings and handle null/undefined
-  return jsonData.map(row => 
-    row.map(cell => {
-      if (cell === null || cell === undefined) {
-        return "";
-      }
-      // Handle Excel date serial numbers (Excel stores dates as numbers)
-      if (typeof cell === "number") {
-        // Excel date serial number starts from 1900-01-01 (serial number 1)
-        // Dates are typically between 1 and ~50000 (for dates up to year 2100)
-        // But we also need to check if it's actually a date vs a regular number
-        // A heuristic: if it's between 1 and 100000 and looks like a date serial
-        if (cell >= 1 && cell < 1000000) {
-          try {
-            // Try to parse as Excel date
-            const excelEpoch = new Date(1899, 11, 30); // Excel epoch is Dec 30, 1899
-            const date = new Date(excelEpoch.getTime() + cell * 86400000); // Add days in milliseconds
-            
-            // Check if the resulting date is reasonable (between 1900 and 2100)
-            const year = date.getFullYear();
-            if (year >= 1900 && year <= 2100 && !isNaN(date.getTime())) {
-              const month = String(date.getMonth() + 1).padStart(2, "0");
-              const day = String(date.getDate()).padStart(2, "0");
-              return `${year}-${month}-${day}`;
-            }
-          } catch (e) {
-            // If date parsing fails, treat as regular number
-          }
-        }
-        // If it's a number but not a date, convert to string
-        return String(cell);
-      }
-      // If it's already a string (from raw: true, dates might be formatted strings)
-      return String(cell);
-    })
-  );
+  if (buffer.byteLength > 10 * 1024 * 1024) throw new Error("Statement too large");
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!worksheet || XLSX.utils.decode_range(worksheet["!ref"] || "A1").e.r > 10000 ||
+      XLSX.utils.decode_range(worksheet["!ref"] || "A1").e.c > 100) {
+    throw new Error("Statement exceeds row/column limits");
+  }
+  const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", raw: true }) as unknown[][];
+  return rows.map(row => row.map(cell => cell instanceof Date
+    ? cell.toISOString().slice(0, 10)
+    : cell === null || cell === undefined ? "" : String(cell)));
 }
 
 /**

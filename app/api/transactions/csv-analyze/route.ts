@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { fetchSignedStorageFile } from "@/lib/utils/signed-storage-url";
 import {
   detectHeaderRow,
   suggestColumnMapping,
@@ -59,11 +60,7 @@ export async function POST(request: Request) {
         buffer = await data.arrayBuffer();
       } else {
         // Fallback to fetching from URL
-        const response = await fetch(file_url);
-        if (!response.ok) {
-          throw new Error("Failed to fetch XLSX file");
-        }
-        buffer = await response.arrayBuffer();
+        buffer = await fetchSignedStorageFile(file_url, "statements", 10 * 1024 * 1024);
       }
 
       // Parse XLSX to array - get more rows for better preview
@@ -120,11 +117,7 @@ export async function POST(request: Request) {
         csvContent = await data.text();
       } else {
         // Fallback to fetching from URL
-        const response = await fetch(file_url);
-        if (!response.ok) {
-          throw new Error("Failed to fetch CSV file");
-        }
-        csvContent = await response.text();
+        csvContent = new TextDecoder().decode(await fetchSignedStorageFile(file_url, "statements", 10 * 1024 * 1024));
       }
 
       // Split into lines for analysis
@@ -193,4 +186,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

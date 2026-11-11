@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { heicBufferToJpeg, isHeicFormat } from "@/lib/utils/heic-to-jpeg";
+import { fetchSignedStorageFile } from "@/lib/utils/signed-storage-url";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -63,19 +64,11 @@ export async function POST(request: Request) {
     } else {
       // If we have a public URL, try to fetch it
       // But if it's a private bucket, we'll need to handle it differently
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) {
-        return NextResponse.json(
-          { error: "Failed to download image. Please ensure the file is accessible." },
-          { status: 500 }
-        );
-      }
-      const imageBlob = await imageResponse.blob();
-      const arrayBuffer = await imageBlob.arrayBuffer();
+      const arrayBuffer = await fetchSignedStorageFile(imageUrl, "receipts", 10 * 1024 * 1024);
       const imageBuffer = Buffer.from(arrayBuffer);
       imageDataUrl = await toSupportedImageDataUrl(
         imageBuffer,
-        imageBlob.type || "image/jpeg",
+        "image/jpeg",
         imageUrl
       );
     }

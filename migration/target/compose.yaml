@@ -1,0 +1,107 @@
+# PREPARATION TEMPLATE ONLY. No published ports; do not launch on dev VPS.
+# Image tags and wiring derived from upstream Supabase commit
+# 86f9c0c2506c8276a03410d99f3185b8bd67d0e9 (docker/docker-compose.yml).
+# Review image digests and bootstrap against destination schema before use.
+name: accounting-isolated
+services:
+  db:
+    image: supabase/postgres:17.6.1.136
+    restart: unless-stopped
+    env_file: ./secrets.env
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: '5432'
+      POSTGRES_PORT: '5432'
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      JWT_EXP: '3600'
+    volumes:
+      - accounting-db:/var/lib/postgresql/data
+      - ./upstream/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./upstream/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -h, localhost]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [accounting-private]
+  auth:
+    image: supabase/gotrue:v2.197.0
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+    env_file: ./secrets.env
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: '9999'
+      API_EXTERNAL_URL: https://accounting-api.sharanbalani.com
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:?required}@db:5432/postgres
+      GOTRUE_SITE_URL: https://accounting.sharanbalani.com
+      GOTRUE_URI_ALLOW_LIST: https://accounting.sharanbalani.com/auth/callback
+      GOTRUE_DISABLE_SIGNUP: 'false'
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:?required}
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: '3600'
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true'
+      GOTRUE_MAILER_AUTOCONFIRM: 'false'
+    networks: [accounting-private]
+  rest:
+    image: postgrest/postgrest:v14.18
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:?required}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public,storage
+      PGRST_DB_EXTRA_SEARCH_PATH: public,extensions
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_MAX_ROWS: '1000'
+      PGRST_JWT_SECRET: ${JWT_SECRET:?required}
+      PGRST_DB_USE_LEGACY_GUCS: 'false'
+    networks: [accounting-private]
+  storage:
+    image: supabase/storage-api:v1.89.12
+    restart: unless-stopped
+    depends_on:
+      db: {condition: service_healthy}
+      rest: {condition: service_started}
+    environment:
+      ANON_KEY: ${ANON_KEY:?required}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY:?required}
+      AUTH_JWT_SECRET: ${JWT_SECRET:?required}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD:?required}@db:5432/postgres
+      POSTGREST_URL: http://rest:3000
+      STORAGE_PUBLIC_URL: https://accounting-api.sharanbalani.com
+      FILE_SIZE_LIMIT: '52428800'
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      GLOBAL_S3_BUCKET: storage
+      TENANT_ID: accounting
+      REGION: local
+      ENABLE_IMAGE_TRANSFORMATION: 'false'
+    volumes:
+      - accounting-objects:/var/lib/storage
+    networks: [accounting-private]
+  gateway:
+    image: envoyproxy/envoy:v1.39.6
+    restart: unless-stopped
+    depends_on:
+      auth: {condition: service_started}
+      rest: {condition: service_started}
+      storage: {condition: service_started}
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+    command: [envoy, -c, /etc/envoy/envoy.yaml]
+    networks: [accounting-private, accounting-app]
+networks:
+  accounting-private:
+    name: accounting-private
+    internal: true
+  accounting-app:
+    name: accounting-app
+    external: true
+volumes:
+  accounting-db:
+  accounting-objects:

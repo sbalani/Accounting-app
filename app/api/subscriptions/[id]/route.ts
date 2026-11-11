@@ -4,8 +4,9 @@ import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   const supabase = await createClient();
   const workspaceId = await getCurrentWorkspaceId();
 
@@ -77,8 +78,9 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   const supabase = await createClient();
   const workspaceId = await getCurrentWorkspaceId();
 
@@ -139,8 +141,9 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   const supabase = await createClient();
   const workspaceId = await getCurrentWorkspaceId();
 
@@ -168,4 +171,3 @@ export async function DELETE(
 
   return NextResponse.json({ success: true });
 }
-

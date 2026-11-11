@@ -4,6 +4,7 @@ import { getCurrentWorkspaceId } from "@/lib/utils/get-current-workspace";
 import { parseCSVStatement } from "@/lib/utils/transaction-parser";
 import { parseCSVWithConfig, parseXLSXWithConfig, CSVImportConfig } from "@/lib/utils/csv-parser";
 import { getExchangeRateForDate, convertAmount } from "@/lib/utils/currency";
+import { fetchSignedStorageFile, isSignedStorageUrl } from "@/lib/utils/signed-storage-url";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -428,6 +429,9 @@ export async function POST(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { searchParams } = new URL(request.url);
   const fileUrl = searchParams.get("file_url");
   const fileType = searchParams.get("file_type"); // 'csv' or 'pdf'
@@ -450,11 +454,7 @@ export async function GET(request: Request) {
         
         if (fileType === "xlsx") {
           // Handle XLSX files
-          const response = await fetch(fileUrl);
-          if (!response.ok) {
-            throw new Error("Failed to fetch XLSX file");
-          }
-          const buffer = await response.arrayBuffer();
+          const buffer = await fetchSignedStorageFile(fileUrl, "statements", 10 * 1024 * 1024);
 
           // Parse XLSX with config
           const transactions = parseXLSXWithConfig(buffer, config);
@@ -462,11 +462,7 @@ export async function GET(request: Request) {
           return NextResponse.json({ transactions });
         } else {
           // Handle CSV files
-          const response = await fetch(fileUrl);
-          if (!response.ok) {
-            throw new Error("Failed to fetch CSV file");
-          }
-          const csvContent = await response.text();
+          const csvContent = new TextDecoder().decode(await fetchSignedStorageFile(fileUrl, "statements", 10 * 1024 * 1024));
 
           // Parse CSV with config
           const transactions = parseCSVWithConfig(csvContent, config);
@@ -483,11 +479,7 @@ export async function GET(request: Request) {
         }
         
         // Fetch CSV content
-        const response = await fetch(fileUrl);
-        if (!response.ok) {
-          throw new Error("Failed to fetch CSV file");
-        }
-        const csvContent = await response.text();
+        const csvContent = new TextDecoder().decode(await fetchSignedStorageFile(fileUrl, "statements", 10 * 1024 * 1024));
 
         // Parse CSV
         const transactions = parseCSVStatement(csvContent);
@@ -504,6 +496,9 @@ export async function GET(request: Request) {
         );
       }
 
+      if (!isSignedStorageUrl(fileUrl, "statements")) {
+        return NextResponse.json({ error: "Invalid signed storage URL" }, { status: 400 });
+      }
       // Use OpenAI to extract text from PDF
       // Note: This is a simplified approach. In production, you might want to convert PDF to images first
       const response = await fetch("https://api.openai.com/v1/chat/completions", {

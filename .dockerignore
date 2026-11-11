@@ -1,0 +1,12 @@
+.git
+.next
+node_modules
+.env*
+!.env.example
+*.pem
+*.tsbuildinfo
+next-env.d.ts
+supabase/.temp
+supabase/.branches
+migration-private
+*.log

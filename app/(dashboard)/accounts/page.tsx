@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import PaymentMethodsList from "@/components/PaymentMethodsList";
 
@@ -22,12 +23,12 @@ export default async function AccountsPage() {
               Manage your cash, bank accounts, and credit cards
             </p>
           </div>
-          <a
+          <Link
             href="/accounts/new"
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
           >
             Add Payment Method
-          </a>
+          </Link>
         </div>
 
         <PaymentMethodsList />

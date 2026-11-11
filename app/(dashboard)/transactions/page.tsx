@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import TransactionsList from "@/components/TransactionsList";
 
@@ -26,36 +27,36 @@ export default async function TransactionsPage() {
           </div>
           
           <div className="flex flex-wrap gap-3 mb-6">
-            <a
+            <Link
               href="/transactions/new"
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium"
             >
               Add Transaction (Manual)
-            </a>
-            <a
+            </Link>
+            <Link
               href="/transactions/new/voice"
               className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Voice Input
-            </a>
-            <a
+            </Link>
+            <Link
               href="/transactions/new/receipt"
               className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Upload Receipt
-            </a>
-            <a
+            </Link>
+            <Link
               href="/transactions/new/import"
               className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Import Statement
-            </a>
-            <a
+            </Link>
+            <Link
               href="/transactions/duplicates"
               className="px-4 py-2 border border-amber-200 rounded-md shadow-sm text-sm font-medium text-amber-900 bg-amber-50 hover:bg-amber-100"
             >
               Find duplicates
-            </a>
+            </Link>
           </div>
         </div>
 

@@ -38,8 +38,24 @@ export async function POST(request: Request) {
     );
   }
 
+  const maxBytes = type === "audio" ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
+  const contentLength = Number(request.headers.get("content-length"));
+  if ((contentLength > maxBytes + 1024 * 1024) || file.size === 0 || file.size > maxBytes) {
+    return NextResponse.json({ error: "File size out of bounds" }, { status: 413 });
+  }
+
+  const allowedExtensions: Record<string, string[]> = {
+    receipt: ["jpg", "jpeg", "png", "webp", "heic", "heif", "pdf"],
+    statement: ["csv", "xls", "xlsx", "pdf"],
+    audio: ["webm", "mp3", "m4a", "wav"],
+  };
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  if (!allowedExtensions[type].includes(extension)) {
+    return NextResponse.json({ error: "Unsupported file extension" }, { status: 400 });
+  }
+
   const ts = Date.now();
-  const fileExt = file.name.split(".").pop() || "bin";
+  const fileExt = extension;
   const fileName = `${user.id}/${workspaceId}/${type}/${ts}.${fileExt}`;
   const bucketName =
     type === "receipt"
