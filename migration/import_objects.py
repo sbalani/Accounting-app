@@ -73,8 +73,9 @@ def storage_trigger_definitions(snapshot):
                          r"FOR EACH ROW EXECUTE FUNCTION storage\.update_updated_at_column\(\)",
                          definitions["update_objects_updated_at"], re.I) is not None,
             "unreviewed source update trigger definition")
-    require(re.match(r"^CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage\.objects "
-                     r"FOR EACH ROW EXECUTE FUNCTION ", definitions["protect_objects_delete"], re.I) is not None,
+    require(re.fullmatch(r"CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage\.objects "
+                         r"FOR EACH STATEMENT EXECUTE FUNCTION storage\.protect_delete\(\)",
+                         definitions["protect_objects_delete"], re.I) is not None,
             "unreviewed source delete protection definition")
     return definitions
 
@@ -104,7 +105,9 @@ def render_storage_metadata_sql(snapshot):
         "THEN RAISE EXCEPTION 'unexpected destination update trigger'; END IF; "
         "IF NOT EXISTS (SELECT 1 FROM pg_trigger AS tr "
         "WHERE tr.tgrelid = 'storage.objects'::regclass AND tr.tgname = 'protect_objects_delete' "
-        "AND NOT tr.tgisinternal AND tr.tgenabled = 'O' AND tr.tgtype = 11 "
+        "AND NOT tr.tgisinternal AND tr.tgenabled = 'O' AND tr.tgtype = 10 "
+        "AND tr.tgfoid = 'storage.protect_delete()'::regprocedure "
+        "AND tr.tgqual IS NULL AND tr.tgnargs = 0 "
         f"AND pg_get_triggerdef(tr.oid) = {quote(triggers['protect_objects_delete'])}) "
         "THEN RAISE EXCEPTION 'delete protection trigger missing or changed'; END IF; ")
     return ("\\set ON_ERROR_STOP on\nBEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;\n"

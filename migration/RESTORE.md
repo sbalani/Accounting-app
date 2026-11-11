@@ -95,8 +95,9 @@ No source credentials, private snapshots or files belong in this repo/dev VPS.
    The transaction snapshots and checks all non-restored destination object
    fields before/after UPDATE; an unexpected trigger mutation rolls back.
    It verifies the reviewed definition and default-enabled state of
-   `update_objects_updated_at` and `protect_objects_delete` against source
-   inventory. Only the named `update_objects_updated_at` is transactionally
+   the row-level `update_objects_updated_at` (tgtype 19) and statement-level
+   `protect_objects_delete` (tgtype 10; `storage.protect_delete()`) against
+   independently captured source inventory. Only the named `update_objects_updated_at` is transactionally
    disabled for the metadata UPDATE, then re-enabled before COMMIT; delete
    protection is never disabled. Unexpected trigger state/definition fails closed.
    A failure can leave partial destination objects: stop and investigate the

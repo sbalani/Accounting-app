@@ -81,7 +81,7 @@ class RestoreTests(unittest.TestCase):
             {"schema": "storage", "table": "objects", "definition":
              "CREATE TRIGGER update_objects_updated_at BEFORE UPDATE ON storage.objects FOR EACH ROW EXECUTE FUNCTION storage.update_updated_at_column()"},
             {"schema": "storage", "table": "objects", "definition":
-             "CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage.objects FOR EACH ROW EXECUTE FUNCTION storage.protect_objects_delete()"},
+             "CREATE TRIGGER protect_objects_delete BEFORE DELETE ON storage.objects FOR EACH STATEMENT EXECUTE FUNCTION storage.protect_delete()"},
         ]
         with patch("import_objects.EXPECTED_OBJECT_COUNT", 1):
             validate_storage_metadata(snapshot)
@@ -93,6 +93,16 @@ class RestoreTests(unittest.TestCase):
         self.assertIn("service-generated storage fields changed", sql)
         self.assertIn("unexpected destination update trigger", sql)
         self.assertIn("delete protection trigger missing or changed", sql)
+        self.assertIn("tr.tgtype = 19", sql)
+        self.assertIn("tr.tgtype = 10", sql)
+        self.assertNotIn("tr.tgtype = 11", sql)
+        snapshot["triggers"][1]["definition"] = snapshot["triggers"][1]["definition"].replace(
+            "FOR EACH STATEMENT", "FOR EACH ROW")
+        with patch("import_objects.EXPECTED_OBJECT_COUNT", 1):
+            with self.assertRaisesRegex(ValueError, "unreviewed source delete protection definition"):
+                validate_storage_metadata(snapshot)
+        snapshot["triggers"][1]["definition"] = snapshot["triggers"][1]["definition"].replace(
+            "FOR EACH ROW", "FOR EACH STATEMENT")
         self.assertLess(sql.index("DISABLE TRIGGER update_objects_updated_at"), sql.index("UPDATE storage.objects"))
         self.assertLess(sql.index("UPDATE storage.objects"), sql.index("ENABLE TRIGGER update_objects_updated_at"))
         self.assertNotIn("DISABLE TRIGGER protect_objects_delete", sql)
