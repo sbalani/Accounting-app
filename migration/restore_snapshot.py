@@ -44,6 +44,24 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, default=str, separators=(",", ":"))
 
 
+def column_specs(snapshot):
+    """Require complete information_schema generation flags before emitting SQL."""
+    specs = {}
+    for item in snapshot["columns"]:
+        require(all(item.get(k) for k in ("table_schema", "table_name", "column_name")), "incomplete column metadata")
+        generated, identity = item.get("is_generated"), item.get("is_identity")
+        generation = item.get("identity_generation")
+        require(generated in ("ALWAYS", "NEVER") and identity in ("YES", "NO"),
+                "missing or invalid column generation metadata")
+        require((identity == "YES" and generation in ("ALWAYS", "BY DEFAULT")) or
+                (identity == "NO" and generation is None), "invalid identity generation metadata")
+        key = (item["table_schema"], item["table_name"])
+        name = item["column_name"]
+        require(name not in specs.setdefault(key, {}), "duplicate column metadata")
+        specs[key][name] = generated == "ALWAYS" or (identity == "YES" and generation == "ALWAYS")
+    return specs
+
+
 def validate(snapshot, destination):
     require(snapshot.get("format_version") == FORMAT, "snapshot format mismatch")
     require(snapshot.get("source_project") == "hltkduqytkgkglmevxvy", "source project mismatch")
@@ -56,19 +74,26 @@ def validate(snapshot, destination):
         require(sorted(map(canonical, snapshot[field])) == sorted(map(canonical, destination[field])), f"{field} schema mismatch")
     public = snapshot.get("public_data")
     require(isinstance(public, dict) and set(public) == set(TABLES), "public table set mismatch")
-    columns = {}
-    for item in snapshot["columns"]:
-        require(all(item.get(k) for k in ("table_schema", "table_name", "column_name")), "incomplete column metadata")
-        columns.setdefault((item["table_schema"], item["table_name"]), set()).add(item["column_name"])
+    columns = column_specs(snapshot)
     for table in TABLES:
         require(("public", table) in columns and isinstance(public[table], list), f"missing {table}")
         for row in public[table]:
-            require(isinstance(row, dict) and set(row) == columns[("public", table)], f"{table} row column mismatch")
+            require(isinstance(row, dict) and set(row) == set(columns[("public", table)]), f"{table} row column mismatch")
     for table, field in (("users", "auth_users"), ("identities", "auth_identities"), ("buckets", "storage_buckets")):
         schema = "storage" if table == "buckets" else "auth"
         require((schema, table) in columns and isinstance(snapshot.get(field), list), f"missing {schema}.{table}")
         for row in snapshot[field]:
-            require(isinstance(row, dict) and set(row) == columns[(schema, table)], f"{field} row column mismatch")
+            require(isinstance(row, dict) and set(row) == set(columns[(schema, table)]), f"{field} row column mismatch")
+    for schema, table, rows in [("auth", "users", snapshot["auth_users"]),
+                                  ("auth", "identities", snapshot["auth_identities"]),
+                                  ("storage", "buckets", snapshot["storage_buckets"])] + [
+                                      ("public", table, public[table]) for table in TABLES]:
+        generated = columns[(schema, table)]
+        if rows and any(generated.values()):
+            require("id" in generated and not generated["id"] and
+                    all(row.get("id") is not None for row in rows) and
+                    len({row["id"] for row in rows}) == len(rows),
+                    f"{schema}.{table} generated values need stable non-generated IDs")
     require(not public["transactions"], "nonzero transactions require a separate trigger/balance restore plan")
     require(all(row.get("id") for row in snapshot["auth_users"]), "user UUID missing")
     require(len({row["id"] for row in snapshot["auth_users"]}) == len(snapshot["auth_users"]), "duplicate user UUID")
@@ -122,18 +147,40 @@ def quote(value):
     return "'" + value.replace("'", "''") + "'"
 
 
-def insert_statement(schema, table, rows):
+def insert_statement(schema, table, rows, specs):
     if not rows:
         return ""
     # Populate an existing, separately reviewed schema: no inferred DDL/defaults.
-    columns = sorted(rows[0])
+    require(set(rows[0]) == set(specs), f"{schema}.{table} row column mismatch")
+    columns = sorted(name for name in rows[0] if not specs[name])
+    require(columns, f"{schema}.{table} has no writable columns")
     require(all(re.fullmatch(r"[a-z_][a-z_0-9]*", col) for col in columns), "unsafe column identifier")
     payload = json.dumps(rows, default=str, ensure_ascii=True, separators=(",", ":"))
     names = ", ".join('"' + col + '"' for col in columns)
     return f"INSERT INTO {schema}.{table} ({names}) SELECT {names} FROM jsonb_populate_recordset(NULL::{schema}.{table}, {quote(payload)}::jsonb);\n"
 
 
+def generated_check(schema, table, rows, specs):
+    """Compare typed PostgreSQL values, including TIMESTAMPTZ, before COMMIT."""
+    generated = sorted(name for name, omitted in specs.items() if omitted)
+    if not rows or not generated:
+        return ""
+    require("id" in specs and not specs["id"], f"{schema}.{table} generated id cannot be preserved")
+    require(all(re.fullmatch(r"[a-z_][a-z_0-9]*", name) for name in generated), "unsafe generated column")
+    payload = json.dumps(rows, default=str, ensure_ascii=True, separators=(",", ":"))
+    delimiter = "$migration_generated_check$"
+    require(delimiter not in payload, "unsafe generated verification payload")
+    differences = " OR ".join(f't."{name}" IS DISTINCT FROM expected."{name}"' for name in generated)
+    return (f"DO {delimiter} BEGIN IF EXISTS (SELECT 1 FROM "
+            f"jsonb_populate_recordset(NULL::{schema}.{table}, {quote(payload)}::jsonb) AS expected "
+            f"LEFT JOIN {schema}.{table} AS t ON t.id = expected.id "
+            f"WHERE t.id IS NULL OR {differences}) THEN "
+            f"RAISE EXCEPTION 'computed column mismatch in {schema}.{table}'; "
+            f"END IF; END {delimiter};\n")
+
+
 def render_sql(snapshot):
+    specs = column_specs(snapshot)
     parts = ["\\set ON_ERROR_STOP on\n", "BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE;\n",
              "SET LOCAL lock_timeout = '5s';\n", "SET LOCAL statement_timeout = '5min';\n",
              "DO $$ BEGIN IF current_setting('server_version') <> " + quote(snapshot["server_version"]) +
@@ -141,14 +188,19 @@ def render_sql(snapshot):
     for schema, table in [("auth", "users"), ("auth", "identities"), ("storage", "buckets"), ("storage", "objects")] + [("public", x) for x in TABLES]:
         parts.append(f"DO $$ BEGIN IF EXISTS (SELECT 1 FROM {schema}.{table} LIMIT 1) THEN RAISE EXCEPTION 'destination {schema}.{table} not empty'; END IF; END $$;\n")
     parts.append("ALTER TABLE auth.users DISABLE TRIGGER USER;\n")
-    parts.append(insert_statement("auth", "users", snapshot["auth_users"]))
+    parts.append(insert_statement("auth", "users", snapshot["auth_users"], specs[("auth", "users")]))
     parts.append("ALTER TABLE auth.users ENABLE TRIGGER USER;\n")
-    parts.append(insert_statement("auth", "identities", snapshot["auth_identities"]))
-    parts.append(insert_statement("storage", "buckets", snapshot["storage_buckets"]))
+    parts.append(insert_statement("auth", "identities", snapshot["auth_identities"], specs[("auth", "identities")]))
+    parts.append(insert_statement("storage", "buckets", snapshot["storage_buckets"], specs[("storage", "buckets")]))
     for table in TABLES:
-        parts.append(insert_statement("public", table, snapshot["public_data"][table]))
+        parts.append(insert_statement("public", table, snapshot["public_data"][table], specs[("public", table)]))
     for schema, table, count in [("auth", "users", len(snapshot["auth_users"])), ("auth", "identities", len(snapshot["auth_identities"]))] + [("public", name, len(snapshot["public_data"][name])) for name in TABLES]:
         parts.append(f"DO $$ BEGIN IF (SELECT count(*) FROM {schema}.{table}) <> {count} THEN RAISE EXCEPTION 'row count mismatch'; END IF; END $$;\n")
+    for schema, table, rows in [("auth", "users", snapshot["auth_users"]),
+                                ("auth", "identities", snapshot["auth_identities"]),
+                                ("storage", "buckets", snapshot["storage_buckets"])] + [
+                                    ("public", table, snapshot["public_data"][table]) for table in TABLES]:
+        parts.append(generated_check(schema, table, rows, specs[(schema, table)]))
     parts.append("COMMIT;\n")
     return "".join(parts)
 

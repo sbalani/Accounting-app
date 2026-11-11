@@ -24,7 +24,10 @@ No source credentials, private snapshots or files belong in this repo/dev VPS.
    v2.197.0. The preflight compares all entries exactly; if any difference,
    stop and review, do not delete fields or bypass the check. PG 15 repo-local
    config is not suitable. Audit current source schemas again if the snapshot
-   metadata has incomplete managed-schema columns.
+   metadata has incomplete managed-schema columns. In particular, every
+   `columns` entry must contain the information_schema `is_generated`,
+   `is_identity` and `identity_generation` fields (including NULL for
+   non-identity columns), identically on both sides.
 3. Validate privately: `python3 migration/restore_snapshot.py SNAPSHOT_JSON
    DEST_SCHEMA_JSON MANIFEST_JSON EXTRACTED_FILES_ROOT`. This checks 13 public
    table sets/columns, auth hashes/identities, private buckets, schema equality,
@@ -43,6 +46,12 @@ No source credentials, private snapshots or files belong in this repo/dev VPS.
    workspaces/profiles), restores UUIDs/password hashes and 13 public tables in
    FK order, re-enables triggers before COMMIT and verifies row counts. It does
    not update/recalculate balances or import storage.objects metadata directly.
+   GENERATED ALWAYS and identity-always fields are omitted from INSERT column
+   lists using the independently matched column metadata. Source values,
+   including auth.users.confirmed_at and auth.identities.email, remain in
+   private JSON and are compared with typed destination computed values inside
+   the same transaction before COMMIT; any mismatch rolls back. A generated
+   row ID or absent generation flags fail closed rather than remapping IDs.
    Review exact source/destination SQL schema, row JSON shape and balances first.
    Then and only then explicitly run on **isolated destination** with
    `psql -X -v ON_ERROR_STOP=1 -f PRIVATE_SQL` using a private destination-only
