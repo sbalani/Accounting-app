@@ -1,7 +1,31 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// SameSite does not distinguish sibling subdomains. Browser mutations must
+// declare the exact configured app origin; missing Origin fails closed too.
+export function isAllowedRequestOrigin(method: string, origin: string | null, appUrl: string | undefined): boolean {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return true
+  if (!origin || !appUrl) return false
+  try {
+    const app = new URL(appUrl)
+    const caller = new URL(origin)
+    const safeProtocol = app.protocol === 'https:' ||
+      (app.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(app.hostname))
+    return safeProtocol && !app.username && !app.password && app.pathname === '/' && !app.search && !app.hash &&
+      origin === caller.origin && caller.origin === app.origin
+  } catch {
+    return false
+  }
+}
+
 export async function middleware(request: NextRequest) {
+  if (!isAllowedRequestOrigin(request.method, request.headers.get('origin'), process.env.NEXT_PUBLIC_APP_URL)) {
+    return NextResponse.json({ error: 'Forbidden' }, {
+      status: 403,
+      headers: { 'Cache-Control': 'no-store' },
+    })
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
