@@ -177,7 +177,7 @@ export default function StatementImportPage() {
             }
           }
         } catch (err) {
-          console.error("Error loading saved config:", err);
+          console.error("Import configuration load failed");
         }
       }
     };
@@ -263,7 +263,7 @@ export default function StatementImportPage() {
         }
       }
     } catch (err) {
-      console.error("Error fetching payment methods:", err);
+      console.error("Payment methods fetch failed");
     }
   };
 
@@ -275,7 +275,7 @@ export default function StatementImportPage() {
         setTransferRules(data.transferRules || []);
       }
     } catch (err) {
-      console.error("Error fetching transfer rules:", err);
+      console.error("Transfer rules fetch failed");
     }
   };
 
@@ -287,7 +287,7 @@ export default function StatementImportPage() {
         setMerchants(data.merchants || []);
       }
     } catch (err) {
-      console.error("Error fetching merchants:", err);
+      console.error("Merchants fetch failed");
     }
   };
 
@@ -299,7 +299,7 @@ export default function StatementImportPage() {
         setCategories(data.categories || []);
       }
     } catch (err) {
-      console.error("Error fetching categories:", err);
+      console.error("Categories fetch failed");
     }
   };
 

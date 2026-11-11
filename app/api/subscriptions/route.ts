@@ -18,7 +18,7 @@ export async function GET() {
     .order("name", { ascending: true });
 
   if (error) {
-    console.error("Error fetching subscriptions:", error);
+    console.error("Subscriptions fetch failed");
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -206,7 +206,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    console.error("Error creating subscription:", error);
+    console.error("Subscription create failed");
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -219,11 +219,10 @@ export async function POST(request: Request) {
       .eq("workspace_id", workspaceId);
 
     if (updateError) {
-      console.error("Error linking transaction to subscription:", updateError);
+      console.error("Subscription transaction link failed");
       // Don't fail the request, just log the error
     }
   }
 
   return NextResponse.json({ subscription });
 }
-

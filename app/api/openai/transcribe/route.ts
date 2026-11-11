@@ -55,8 +55,7 @@ export async function POST(request: Request) {
     formData.append("model", "gpt-4o-transcribe");
     formData.append("response_format", "json");
 
-    console.log("Sending audio file for transcription, size:", audioFile.size, "type:", audioFile.type);
-    console.log("Using model: gpt-4o-transcribe");
+    console.info("Audio transcription request started");
 
     let response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
@@ -68,8 +67,7 @@ export async function POST(request: Request) {
 
     // Fallback to whisper-1 if gpt-4o-transcribe is not available
     if (!response.ok) {
-      const errorData = await response.json();
-      console.warn("gpt-4o-transcribe failed, falling back to whisper-1:", errorData);
+      console.warn("Audio transcription fallback", response.status);
       
       const fallbackFormData = new FormData();
       fallbackFormData.append("file", audioFile);
@@ -87,15 +85,13 @@ export async function POST(request: Request) {
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error("Transcription API error:", response.status, errorData);
+      console.error("Audio transcription upstream failed", response.status);
       throw new Error(errorData.error?.message || "OpenAI API error");
     }
 
     const data = await response.json();
     const transcription = data.text;
 
-    console.log("Transcription received:", transcription);
-    console.log("Full transcription response:", JSON.stringify(data, null, 2));
 
     // Fetch categories and categorization rules for the workspace
     const supabase = await createClient();
@@ -130,8 +126,6 @@ export async function POST(request: Request) {
       }
     }
 
-    console.log("Categories:", categories);
-    console.log("Categorization rules:", categorizationRules.length);
 
     // Parse the transcription to extract transaction details
     // Use GPT-4o with structured outputs (JSON schema) for reliable parsing
@@ -187,7 +181,7 @@ export async function POST(request: Request) {
       max_tokens: 300,
     };
 
-    console.log("Sending parsing request to OpenAI:", JSON.stringify(requestBody, null, 2));
+    console.info("Audio transaction parsing request started");
 
     const parseResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -199,8 +193,7 @@ export async function POST(request: Request) {
     });
 
     if (!parseResponse.ok) {
-      const errorText = await parseResponse.text();
-      console.warn("Structured outputs (json_schema) failed, falling back to json_object mode:", parseResponse.status, errorText);
+      console.warn("Audio transaction parsing fallback", parseResponse.status);
       
       // Fallback to json_object mode (legacy but widely supported)
       const fallbackRequestBody = {
@@ -219,7 +212,6 @@ export async function POST(request: Request) {
         max_tokens: 300,
       };
 
-      console.log("Sending fallback parsing request:", JSON.stringify(fallbackRequestBody, null, 2));
 
       const fallbackResponse = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -231,8 +223,7 @@ export async function POST(request: Request) {
       });
 
       if (!fallbackResponse.ok) {
-        const fallbackErrorText = await fallbackResponse.text();
-        console.error("OpenAI parsing API error (fallback also failed):", fallbackResponse.status, fallbackErrorText);
+        console.error("Audio transaction parsing upstream failed", fallbackResponse.status);
         // If parsing fails, return just the transcription
         return NextResponse.json({
           transcription,
@@ -241,13 +232,11 @@ export async function POST(request: Request) {
       }
 
       const fallbackData = await fallbackResponse.json();
-      console.log("Fallback parsing response:", JSON.stringify(fallbackData, null, 2));
       const fallbackContent = fallbackData.choices[0]?.message?.content;
       
       if (fallbackContent) {
         try {
           let transactionJson = JSON.parse(fallbackContent);
-          console.log("Parsed transaction JSON (fallback):", JSON.stringify(transactionJson, null, 2));
           
           if (transactionJson.amount !== undefined && transactionJson.description !== undefined) {
             // Apply categorization logic for fallback path too
@@ -311,8 +300,8 @@ export async function POST(request: Request) {
               transaction: transactionJson,
             });
           }
-        } catch (e) {
-          console.error("Failed to parse fallback JSON:", e);
+        } catch {
+          console.warn("Audio transaction fallback parse failed");
         }
       }
       
@@ -323,13 +312,13 @@ export async function POST(request: Request) {
     }
 
     const parseData = await parseResponse.json();
-    console.log("OpenAI parsing response received:", JSON.stringify(parseData, null, 2));
     
     const content = parseData.choices[0]?.message?.content;
     const finishReason = parseData.choices[0]?.finish_reason;
     
-    console.log("Extracted content:", content);
-    console.log("Finish reason:", finishReason);
+    if (finishReason && finishReason !== "stop") {
+      console.info("Audio transaction parse incomplete");
+    }
     
     if (!content) {
       console.error("No content in OpenAI parsing response");
@@ -344,12 +333,11 @@ export async function POST(request: Request) {
     try {
       transactionJson = JSON.parse(content);
       
-      console.log("Parsed transaction JSON:", JSON.stringify(transactionJson, null, 2));
       
       // Validate that we have the required fields (schema should ensure this, but double-check)
       if (transactionJson.amount === undefined || transactionJson.description === undefined || 
           transactionJson.transaction_date === undefined) {
-        console.error("Transaction JSON missing required fields:", transactionJson);
+        console.warn("Audio transaction missing required fields");
         return NextResponse.json({
           transcription,
           transaction: null,
@@ -358,7 +346,7 @@ export async function POST(request: Request) {
       
       // Validate that we have at least an amount or description with meaningful content
       if (transactionJson.amount === 0 && !transactionJson.description) {
-        console.error("Transaction JSON has no meaningful data:", transactionJson);
+        console.warn("Audio transaction has no meaningful fields");
         return NextResponse.json({
           transcription,
           transaction: null,
@@ -375,7 +363,6 @@ export async function POST(request: Request) {
       
       if (ruleMatch && ruleMatch.category) {
         categorizedCategory = ruleMatch.category;
-        console.log("Category assigned by rule:", categorizedCategory, "Rule ID:", ruleMatch.rule_id);
       } else {
         // Step 2 & 3: Use AI for categorization
         // Get AI context rules if any match
@@ -390,7 +377,6 @@ export async function POST(request: Request) {
             aiContextRules
           );
 
-          console.log("Categorization prompt:", categorizationPrompt);
 
           // Call AI for categorization
           const categoryResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -424,9 +410,8 @@ export async function POST(request: Request) {
                 const categoryResult = JSON.parse(categoryContent);
                 // The AI should return { category: "Category Name" } or { category: null }
                 categorizedCategory = categoryResult.category || null;
-                console.log("Category assigned by AI:", categorizedCategory);
-              } catch (e) {
-                console.error("Failed to parse category response:", e);
+              } catch {
+                console.warn("Audio transaction category response parse failed");
               }
             }
           } else {
@@ -438,9 +423,8 @@ export async function POST(request: Request) {
       // Add the categorized category to the transaction
       transactionJson.category = categorizedCategory;
       
-    } catch (parseError) {
-      console.error("Failed to parse transaction JSON:", parseError);
-      console.error("Content that failed to parse:", content);
+    } catch {
+      console.warn("Audio transaction parse failed");
       return NextResponse.json({
         transcription,
         transaction: null,

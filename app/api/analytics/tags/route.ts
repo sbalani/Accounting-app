@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     const { data: rows, error } = await query;
 
     if (error) {
-      console.error("Error fetching tag analytics:", error);
+      console.error("Tag analytics fetch failed");
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -147,11 +147,10 @@ export async function GET(request: Request) {
       tags,
     });
   } catch (error: any) {
-    console.error("Unexpected error in GET /api/analytics/tags:", error);
+    console.error("Tag analytics route failed");
     return NextResponse.json(
       { error: error.message || "An unexpected error occurred" },
       { status: 500 }
     );
   }
 }
-

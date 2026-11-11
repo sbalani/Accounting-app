@@ -91,7 +91,7 @@ export async function PATCH(
     .maybeSingle();
 
   if (fetchError) {
-    console.error("Error fetching transaction:", fetchError);
+    console.error("Transaction fetch failed");
     return NextResponse.json(
       { error: fetchError.message || "Failed to fetch transaction" },
       { status: 500 }
@@ -150,7 +150,7 @@ export async function PATCH(
         .eq("id", category_id)
         .maybeSingle();
       if (categoryError) {
-        console.error("Error fetching category:", categoryError);
+        console.error("Transaction category fetch failed");
       } else if (categoryData) {
         updateData.category = categoryData.name;
       }
@@ -187,7 +187,7 @@ export async function PATCH(
         .eq("id", merchant_id)
         .maybeSingle();
       if (merchantError) {
-        console.error("Error fetching merchant:", merchantError);
+        console.error("Transaction merchant fetch failed");
       } else if (merchantData) {
         updateData.merchant = merchantData.name;
       }
@@ -314,7 +314,7 @@ export async function PATCH(
     .eq("workspace_id", workspaceId);
 
   if (updateError) {
-    console.error("Error updating transaction:", updateError);
+    console.error("Transaction update failed");
     return NextResponse.json({ error: updateError.message || "Failed to update transaction" }, { status: 500 });
   }
 
@@ -327,7 +327,7 @@ export async function PATCH(
       .eq("transaction_id", params.id);
 
     if (assignmentsError) {
-      console.error("Error fetching tag assignments:", assignmentsError);
+      console.error("Transaction tag assignments fetch failed");
       return NextResponse.json(
         { error: assignmentsError.message || "Failed to update tags" },
         { status: 500 }
@@ -353,7 +353,7 @@ export async function PATCH(
         .eq("workspace_id", workspaceId);
 
       if (tagsValidationError) {
-        console.error("Error validating tags:", tagsValidationError);
+        console.error("Transaction tags validation failed");
         return NextResponse.json(
           { error: tagsValidationError.message || "Failed to validate tags" },
           { status: 500 }
@@ -379,7 +379,7 @@ export async function PATCH(
         .from("transaction_tag_assignments")
         .insert(insertRows);
       if (insertError) {
-        console.error("Error adding tag assignments:", insertError);
+        console.error("Transaction tag assignments insert failed");
         return NextResponse.json(
           { error: insertError.message || "Failed to add tags" },
           { status: 500 }
@@ -393,7 +393,7 @@ export async function PATCH(
         .delete()
         .in("id", toRemoveIds);
       if (deleteError) {
-        console.error("Error removing tag assignments:", deleteError);
+        console.error("Transaction tag assignments delete failed");
         return NextResponse.json(
           { error: deleteError.message || "Failed to remove tags" },
           { status: 500 }
@@ -411,7 +411,7 @@ export async function PATCH(
     .maybeSingle();
 
   if (fetchUpdatedError) {
-    console.error("Error fetching updated transaction:", fetchUpdatedError);
+    console.error("Updated transaction fetch failed");
     return NextResponse.json({ error: fetchUpdatedError.message || "Failed to fetch updated transaction" }, { status: 500 });
   }
 

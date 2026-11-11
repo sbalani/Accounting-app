@@ -135,7 +135,7 @@ export async function GET(request: Request) {
       categories: list,
     });
   } catch (err: unknown) {
-    console.error("Category analytics error:", err);
+    console.error("Category analytics request failed");
     return NextResponse.json(
       {
         error: err instanceof Error ? err.message : "An unexpected error occurred",

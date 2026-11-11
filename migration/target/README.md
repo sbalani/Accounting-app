@@ -34,3 +34,17 @@ reviewed gateway protections/rate limits before exposing externally. Schema-only
 source export/review is a prerequisite for restore: JSON column metadata alone
 cannot reconstruct indexes, FKs, defaults, RLS and all auth internals safely.
 No containers/ports have been launched.
+
+The separate Next.js `Dockerfile` pins official Node
+`24.19.0-bookworm-slim@sha256:a9f5f7c91a432850b2a8a7797adf5eadb6c733ceed61167806cee7ea7fbc29df`
+in all three stages (official Docker Hub multi-arch image index). There is no
+`public/` directory at this revision, so no runner copy is needed; revisit if
+assets are added later. Next's standalone trace does **not** include
+`libheif-js`/`heic-decode`/`heic-convert` under `node_modules`, and the WASM
+loader uses dynamic requires; the Dockerfile explicitly copies these packages,
+`libheif.wasm`, and jpeg/png dependencies into the runner. A successful
+`next build` is not a container test: on the new VPS, the operator must build
+the actual final image, confirm `/app/node_modules/libheif-js/libheif-wasm/libheif.wasm`
+exists in it, inspect the Node-fetch Dockerfile HEALTHCHECK for `/api/health`
+(no curl dependency), check `/api/ready` plus authenticated REST/Storage, and exercise an authenticated
+synthetic HEIC upload/preview with no paid AI call before accepting packaging.

@@ -97,7 +97,7 @@ export default function EditTransactionPage() {
         setPaymentMethods(data.paymentMethods || []);
       }
     } catch (err) {
-      console.error("Error fetching payment methods:", err);
+      console.error("Payment methods fetch failed");
     }
   }, []);
 
@@ -109,7 +109,7 @@ export default function EditTransactionPage() {
         setCategories(data.categories || []);
       }
     } catch (err) {
-      console.error("Error fetching categories:", err);
+      console.error("Categories fetch failed");
     }
   }, []);
 
@@ -126,7 +126,7 @@ export default function EditTransactionPage() {
         setCategories((prev) => [...prev, d.category]);
         return d.category;
       } catch (err) {
-        console.error("Error creating category:", err);
+        console.error("Category create failed");
         return null;
       }
     },
@@ -174,7 +174,7 @@ export default function EditTransactionPage() {
       })
       .catch((e) => {
         if (e.name !== "AbortError") {
-          console.error("Error fetching matchable transactions:", e);
+          console.error("Matchable transactions fetch failed");
           setMatchableTransactions([]);
           setError(e instanceof Error ? e.message : "Failed to load matching transactions");
         }

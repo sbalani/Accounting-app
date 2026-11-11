@@ -48,7 +48,7 @@ export async function PATCH(
     .maybeSingle();
 
   if (error) {
-    console.error("Error updating tag:", error);
+    console.error("Tag update failed");
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -86,7 +86,7 @@ export async function DELETE(
     .eq("tag_id", params.id);
 
   if (assignmentsError) {
-    console.error("Error deleting tag assignments:", assignmentsError);
+    console.error("Tag assignments delete failed");
     return NextResponse.json(
       { error: assignmentsError.message },
       { status: 500 }
@@ -100,7 +100,7 @@ export async function DELETE(
     .eq("workspace_id", workspaceId);
 
   if (error) {
-    console.error("Error deleting tag:", error);
+    console.error("Tag delete failed");
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

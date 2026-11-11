@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   const { data: potentialMatches, error: matchesError } = await query;
 
   if (matchesError) {
-    console.error("Error finding potential matches:", matchesError);
+    console.error("Subscription suggestions fetch failed");
     return NextResponse.json({ error: matchesError.message }, { status: 500 });
   }
 
@@ -157,4 +157,3 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ suggestions });
 }
-

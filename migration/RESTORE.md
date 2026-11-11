@@ -21,17 +21,30 @@ No source credentials, private snapshots or files belong in this repo/dev VPS.
    arrays. Save it as a private JSON object with these arrays plus
    `server_version` from `SHOW server_version` and `auth_version` from a
    destination `/auth/v1/health` response. Required values: 17.6 and
-   v2.197.0. The preflight compares all entries exactly; if any difference,
-   stop and review, do not delete fields or bypass the check. PG 15 repo-local
+   v2.197.0. Exact metadata comparison remains the default. For this reviewed
+   snapshot only, the explicit `--reviewed-storage-compatibility` flag permits
+   **only** policy `qual`/`with_check` whitespace between SQL tokens (not inside
+   string/dollar literals, quoted identifiers or comments), the three
+   `storage.objects` ordinal_position/dtd_identifier pairs
+   `archived_at 14→13`, `is_delete_marker 15→14`, `is_versioned 16→15`, and
+   precisely 7 destination-only `storage.iceberg_namespaces` plus 11
+   `storage.iceberg_tables` columns named in `restore_snapshot.py`. It reports
+   each reviewed column and policy expression name without exposing row data.
+   Every other column property, policy field and schema inventory remains an
+   exact match; raw source/destination metadata is never rewritten. If anything
+   else differs, stop and review, do not delete fields or bypass the check. PG 15 repo-local
    config is not suitable. Audit current source schemas again if the snapshot
    metadata has incomplete managed-schema columns. In particular, every
    `columns` entry must contain the information_schema `is_generated`,
    `is_identity` and `identity_generation` fields (including NULL for
-   non-identity columns), identically on both sides.
+   non-identity columns), identically on both sides. The additive Iceberg
+   tables are never written by these tools and require operator type/isolation review.
 3. Validate privately: `python3 migration/restore_snapshot.py SNAPSHOT_JSON
    DEST_SCHEMA_JSON MANIFEST_JSON EXTRACTED_FILES_ROOT`. This checks 13 public
    table sets/columns, auth hashes/identities, private buckets, schema equality,
-   107 expected object paths, bytes and SHA256. It rejects nonzero transactions
+   107 expected object paths, bytes and SHA256. Repeat the explicit compatibility
+   flag for the SQL-staging command if the exact comparison reports the reviewed
+   differences. It rejects nonzero transactions
    until an explicit balance-trigger import plan is approved. Source has only
    one email/password user and one identity. **Do not import** old-domain
    sessions (14), refresh tokens (54), MFA AMR claims (14), flow state (2) or
@@ -59,14 +72,37 @@ No source credentials, private snapshots or files belong in this repo/dev VPS.
 5. After database commit, provision/import Storage bytes through the destination
    service (not a raw copy into its internal file backend). The opt-in
    `python3 migration/import_objects.py SNAPSHOT_JSON MANIFEST_JSON
-   EXTRACTED_FILES_ROOT --isolated-destination` uses an internal-only
+   EXTRACTED_FILES_ROOT --isolated-destination --metadata-sql-output PRIVATE_NEW_SQL_PATH`
+   uses an internal-only
    `http://gateway:8000` URL and destination-only `DESTINATION_SERVICE_ROLE_KEY`
-   from private environment; it hashes the original files before import and
-   downloads and SHA256-checks every uploaded object. Uploads use no upsert.
+   from private environment; it hashes the original files before import,
+   uploads with source Content-Type and `Cache-Control: max-age=3600`, and
+   downloads and SHA256/checks the response Cache-Control for every object.
+   Uploads use no upsert.
+   This command requires complete non-null source `storage.objects.owner` and
+   `owner_id` matching each preserved user/path, source MIME, reviewed
+   `metadata.cacheControl=max-age=3600`, and safe writable
+   ownership/timestamp columns. Only after all SHA256 readbacks pass does it
+   emit mode-0600 root-only destination SQL; inspect and execute that SQL as a
+   separate explicit one-shot transaction **before treating Storage migration
+   as complete**. It refuses missing/extra objects, MIME/cache-control differences and
+   private bucket metadata drift, updates only `owner`, `owner_id`,
+   `created_at`, `updated_at`, `last_accessed_at`, `user_metadata`, then verifies
+   those source values before COMMIT. Storage service-generated `id`,
+   `version`/`version_id`, backend/physical fields and file metadata such as
+   eTag/lastModified/contentLength/httpStatusCode remain
+   destination-generated; their source values are intentionally not copied.
+   The transaction snapshots and checks all non-restored destination object
+   fields before/after UPDATE; an unexpected trigger mutation rolls back.
+   It verifies the reviewed definition and default-enabled state of
+   `update_objects_updated_at` and `protect_objects_delete` against source
+   inventory. Only the named `update_objects_updated_at` is transactionally
+   disabled for the metadata UPDATE, then re-enabled before COMMIT; delete
+   protection is never disabled. Unexpected trigger state/definition fails closed.
    A failure can leave partial destination objects: stop and investigate the
    isolated copy before retry; never auto-delete/recreate the source or target.
-   Storage metadata IDs are service-created; bucket names/keys/object bytes
-   remain exact. Compare MIME and private bucket metadata after import.
+   Storage metadata IDs/versions are service-created; bucket names/keys/object
+   bytes, ownership and logical timestamps are reconciled independently.
 6. Compare private source/destination read-only manifests using `reconcile.py`,
    confirm 13 table counts per workspace/currency, role membership, NUMERIC
    balances, FK validation, and all 107 object hashes/bytes. Authenticated

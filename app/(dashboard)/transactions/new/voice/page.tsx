@@ -44,7 +44,7 @@ export default function VoiceInputPage() {
         }
       }
     } catch (err) {
-      console.error("Error fetching payment methods:", err);
+      console.error("Payment methods fetch failed");
     }
   };
 
@@ -83,7 +83,7 @@ export default function VoiceInputPage() {
           // Process the audio
           await processAudio(audioBlob);
         } catch (err: any) {
-          console.error("Error in onstop handler:", err);
+          console.error("Audio recorder completion failed");
           setError("Failed to process recording: " + err.message);
           stream.getTracks().forEach((track) => track.stop());
         }
@@ -108,7 +108,7 @@ export default function VoiceInputPage() {
         mediaRecorderRef.current.stop();
         setRecording(false);
       } catch (err: any) {
-        console.error("Error stopping recording:", err);
+        console.error("Audio recorder stop failed");
         setError("Failed to stop recording: " + err.message);
         setRecording(false);
       }
@@ -120,13 +120,11 @@ export default function VoiceInputPage() {
     setError(null);
 
     try {
-      console.log("Processing audio blob, size:", audioBlob.size);
       
       // Send audio directly to OpenAI transcription API (no need to store in Supabase)
       const formData = new FormData();
       formData.append("file", audioBlob, "audio.webm");
 
-      console.log("Sending request to /api/openai/transcribe");
       
       // Transcribe and parse
       const response = await fetch("/api/openai/transcribe", {
@@ -134,7 +132,7 @@ export default function VoiceInputPage() {
         body: formData,
       });
 
-      console.log("Response status:", response.status);
+      console.info("Audio transcription response", response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -144,12 +142,11 @@ export default function VoiceInputPage() {
         } catch {
           errorData = { error: errorText || "Failed to transcribe audio" };
         }
-        console.error("API error:", errorData);
+        console.error("Audio transcription request failed", response.status);
         throw new Error(errorData.error || "Failed to transcribe audio");
       }
 
       const data = await response.json();
-      console.log("Received transcription data:", data);
       
       setTranscription(data.transcription);
       if (data.transaction) {
@@ -158,7 +155,7 @@ export default function VoiceInputPage() {
         setError("Could not extract transaction details from audio. Please try again or enter manually.");
       }
     } catch (err: any) {
-      console.error("Error processing audio:", err);
+      console.error("Audio processing failed");
       setError(err.message || "Failed to process audio");
     } finally {
       setProcessing(false);

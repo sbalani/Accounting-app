@@ -266,9 +266,9 @@ export async function POST(request: Request) {
           transaction.transaction_date
         );
         convertedAmount = convertAmount(baseAmount, exchangeRate);
-      } catch (error: any) {
+      } catch {
         // If exchange rate fetch fails, use 1:1 as fallback
-        console.warn(`Failed to fetch exchange rate: ${error.message}, using 1:1`);
+        console.warn("Transaction import exchange-rate fallback");
         exchangeRate = 1;
         convertedAmount = baseAmount;
       }
@@ -353,9 +353,9 @@ export async function POST(request: Request) {
                 transaction.transaction_date
               );
               destConvertedAmount = convertAmount(baseAmount, destExchangeRate);
-            } catch (error: any) {
+            } catch {
               // If exchange rate fetch fails, use 1:1 as fallback
-              console.warn(`Failed to fetch exchange rate for destination: ${error.message}, using 1:1`);
+              console.warn("Transaction import destination exchange-rate fallback");
               destExchangeRate = 1;
               destConvertedAmount = baseAmount;
             }

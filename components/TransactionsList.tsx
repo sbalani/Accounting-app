@@ -96,7 +96,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
         setPaymentMethods(data.paymentMethods || []);
       }
     } catch (err) {
-      console.error("Error fetching payment methods:", err);
+      console.error("Payment methods fetch failed");
     }
   }, []);
 
@@ -108,7 +108,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
         setCategories(data.categories || []);
       }
     } catch (err) {
-      console.error("Error fetching categories:", err);
+      console.error("Categories fetch failed");
     }
   }, []);
 
@@ -120,7 +120,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
         setMerchants(data.merchants || []);
       }
     } catch (err) {
-      console.error("Error fetching merchants:", err);
+      console.error("Merchants fetch failed");
     }
   }, []);
 
@@ -132,7 +132,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
         setTags(data.tags || []);
       }
     } catch (err) {
-      console.error("Error fetching tags:", err);
+      console.error("Tags fetch failed");
     }
   }, []);
 
@@ -566,7 +566,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
       setCategories((prev) => [...prev, newCategory]);
       return newCategory;
     } catch (err) {
-      console.error("Error creating category:", err);
+      console.error("Category create failed");
       return null;
     }
   };
@@ -590,7 +590,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
       setMerchants((prev) => [...prev, newMerchant]);
       return newMerchant;
     } catch (err) {
-      console.error("Error creating merchant:", err);
+      console.error("Merchant create failed");
       return null;
     }
   };
@@ -657,7 +657,7 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
         }
       } catch (err) {
         // Silently fail - suggestions are not critical
-        console.error("Error fetching suggestion:", err);
+        console.error("Suggestion fetch failed");
       }
     }
   }, [transactions]);

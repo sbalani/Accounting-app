@@ -51,7 +51,7 @@ export default function NewTransactionPage() {
         }
       }
     } catch (err) {
-      console.error("Error fetching payment methods:", err);
+      console.error("Payment methods fetch failed");
     }
   };
 
@@ -63,7 +63,7 @@ export default function NewTransactionPage() {
         setCategories(data.categories || []);
       }
     } catch (err) {
-      console.error("Error fetching categories:", err);
+      console.error("Categories fetch failed");
     }
   }, []);
 
@@ -84,7 +84,7 @@ export default function NewTransactionPage() {
         setCategories((prev) => [...prev, newCat]);
         return newCat;
       } catch (err) {
-        console.error("Error creating category:", err);
+        console.error("Category create failed");
         return null;
       }
     },

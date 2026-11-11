@@ -104,7 +104,7 @@ export default function ReceiptUploadPage() {
         }
       }
     } catch (err) {
-      console.error("Error fetching payment methods:", err);
+      console.error("Payment methods fetch failed");
     }
   };
 

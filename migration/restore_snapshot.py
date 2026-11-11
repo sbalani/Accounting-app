@@ -28,6 +28,13 @@ BUCKETS = {"receipts", "statements"}
 FORMAT = "accounting-migration-snapshot-v1"
 EXPECTED_OBJECT_COUNT = 107
 EXPECTED_OBJECT_BYTES = 160093651
+REVIEWED_OBJECT_ORDINALS = {"archived_at": (14, 13), "is_delete_marker": (15, 14),
+                            "is_versioned": (16, 15)}
+REVIEWED_ICEBERG_COLUMNS = {
+    "iceberg_namespaces": {"id", "bucket_name", "name", "catalog_id", "metadata", "created_at", "updated_at"},
+    "iceberg_tables": {"id", "bucket_name", "name", "catalog_id", "namespace_id", "remote_table_id",
+                       "location", "shard_key", "shard_id", "created_at", "updated_at"},
+}
 
 
 def require(condition, description):
@@ -62,16 +69,137 @@ def column_specs(snapshot):
     return specs
 
 
-def validate(snapshot, destination):
+def sql_tokens(expression):
+    """Tokenize PostgreSQL expressions; discard whitespace only between tokens.
+
+    Quoted string/identifier/dollar bodies and SQL comments remain byte-exact.
+    Invalid/unclosed quotes fail closed rather than comparing a lossy rewrite.
+    """
+    if expression is None:
+        return None
+    require(isinstance(expression, str), "invalid policy expression")
+    tokens = []
+    i = 0
+    while i < len(expression):
+        start = i
+        char = expression[i]
+        if char.isspace():
+            i += 1
+            continue
+        if expression.startswith("--", i):
+            end = expression.find("\n", i)
+            i = len(expression) if end < 0 else end
+        elif expression.startswith("/*", i):
+            depth = 1
+            i += 2
+            while depth and i < len(expression):
+                if expression.startswith("/*", i):
+                    depth += 1
+                    i += 2
+                elif expression.startswith("*/", i):
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+            require(depth == 0, "unclosed policy comment")
+        else:
+            dollar = re.match(r"\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$", expression[i:]) if char == "$" else None
+            if dollar:
+                marker = dollar.group()
+                end = expression.find(marker, i + len(marker))
+                require(end >= 0, "unclosed dollar-quoted policy literal")
+                i = end + len(marker)
+            else:
+                escape = char in "eE" and i + 1 < len(expression) and expression[i + 1] == "'"
+                if escape:
+                    i += 1
+                    char = "'"
+                if char in ("'", '"'):
+                    i += 1
+                    while i < len(expression):
+                        if escape and expression[i] == "\\":
+                            i += 2
+                        elif expression[i] == char:
+                            if i + 1 < len(expression) and expression[i + 1] == char:
+                                i += 2
+                            else:
+                                i += 1
+                                break
+                        else:
+                            i += 1
+                    else:
+                        raise ValueError("unclosed quoted policy literal")
+                else:
+                    word = re.match(r"[A-Za-z_][A-Za-z_0-9$]*|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?", expression[i:])
+                    operator = re.match(r"[~!@#%^&*+=|?<>/-]+", expression[i:])
+                    i += len(word.group() if word else operator.group() if operator else char)
+        tokens.append(expression[start:i])
+    return tuple(tokens)
+
+
+def reviewed_columns(source, destination):
+    column_specs({"columns": source})
+    column_specs({"columns": destination})
+    def keyed(rows):
+        return {(r["table_schema"], r["table_name"], r["column_name"]): r for r in rows}
+    src, dst = keyed(source), keyed(destination)
+    require(len(src) == len(source) and len(dst) == len(destination), "duplicate column inventory")
+    added = {("storage", table, name) for table, names in REVIEWED_ICEBERG_COLUMNS.items() for name in names}
+    require(set(dst) - set(src) == added and not set(src) - set(dst), "unreviewed column addition/removal")
+    changes = []
+    for key in sorted(set(src) & set(dst)):
+        if src[key] == dst[key]:
+            continue
+        schema, table, name = key
+        require((schema, table) == ("storage", "objects") and name in REVIEWED_OBJECT_ORDINALS,
+                "unreviewed column change")
+        changed = {field for field in src[key].keys() | dst[key].keys() if src[key].get(field) != dst[key].get(field)}
+        require(changed == {"ordinal_position", "dtd_identifier"}, "unreviewed storage.objects column change")
+        before, after = REVIEWED_OBJECT_ORDINALS[name]
+        require(src[key].get("ordinal_position") == before and dst[key].get("ordinal_position") == after and
+                str(src[key].get("dtd_identifier")) == str(before) and
+                str(dst[key].get("dtd_identifier")) == str(after), "storage.objects physical ordinal mismatch")
+        changes.append(f"storage.objects.{name}: ordinal_position/dtd_identifier {before}->{after}")
+    require(len(changes) == len(REVIEWED_OBJECT_ORDINALS), "incomplete reviewed storage.objects differences")
+    return changes + [f"storage.{table}.{name}: destination-only" for table in sorted(REVIEWED_ICEBERG_COLUMNS)
+                      for name in sorted(REVIEWED_ICEBERG_COLUMNS[table])]
+
+
+def reviewed_policies(source, destination):
+    def keyed(rows):
+        return {(r["schemaname"], r["tablename"], r["policyname"]): r for r in rows}
+    require(len(source) == 59 and len(destination) == 59, "policy count mismatch")
+    src, dst = keyed(source), keyed(destination)
+    require(len(src) == 59 and set(src) == set(dst), "policy inventory mismatch")
+    changes = []
+    for key in sorted(src):
+        before, after = src[key], dst[key]
+        require(set(before) == set(after) and
+                all(before[field] == after[field] for field in before if field not in ("qual", "with_check")),
+                "unreviewed policy metadata change")
+        for field in ("qual", "with_check"):
+            require(sql_tokens(before.get(field)) == sql_tokens(after.get(field)), "policy expression change")
+            if before.get(field) != after.get(field):
+                changes.append(f"policy {'.'.join(key)}.{field}: whitespace-only")
+    return changes
+
+
+def validate(snapshot, destination, reviewed_storage_compatibility=False):
     require(snapshot.get("format_version") == FORMAT, "snapshot format mismatch")
     require(snapshot.get("source_project") == "hltkduqytkgkglmevxvy", "source project mismatch")
     version = snapshot.get("server_version")
     require(isinstance(version, str) and version.startswith("17.6"), "source PostgreSQL 17.6 required")
     require(destination.get("server_version") == version, "destination PostgreSQL version mismatch")
     require(destination.get("auth_version") == "v2.197.0", "destination GoTrue version mismatch")
+    differences = []
     for field in METADATA:
         require(isinstance(snapshot.get(field), list) and isinstance(destination.get(field), list), f"missing {field} metadata")
-        require(sorted(map(canonical, snapshot[field])) == sorted(map(canonical, destination[field])), f"{field} schema mismatch")
+        if reviewed_storage_compatibility and field == "columns":
+            differences.extend(reviewed_columns(snapshot[field], destination[field]))
+        elif reviewed_storage_compatibility and field == "policies":
+            differences.extend(reviewed_policies(snapshot[field], destination[field]))
+        else:
+            require(sorted(map(canonical, snapshot[field])) == sorted(map(canonical, destination[field])), f"{field} schema mismatch")
     public = snapshot.get("public_data")
     require(isinstance(public, dict) and set(public) == set(TABLES), "public table set mismatch")
     columns = column_specs(snapshot)
@@ -105,6 +233,7 @@ def validate(snapshot, destination):
     keys = [(obj.get("bucket_id", obj.get("bucket")), obj.get("name")) for obj in objects]
     require(len(keys) == len(set(keys)) and all(bucket in BUCKETS and safe_key(name) for bucket, name in keys), "invalid storage object keys")
     require(len(objects) == EXPECTED_OBJECT_COUNT, "initial snapshot object count mismatch")
+    return differences
 
 
 def safe_key(value):
@@ -212,11 +341,17 @@ def main():
     parser.add_argument("object_manifest")
     parser.add_argument("object_root")
     parser.add_argument("--sql-output", help="private SQL path, outside git (never stdout)")
+    parser.add_argument("--reviewed-storage-compatibility", action="store_true",
+                        help="allow ONLY reviewed 3 storage.objects ordinal changes, 18 Iceberg columns and policy whitespace")
     args = parser.parse_args()
     try:
         snapshot, destination = read_json(args.snapshot), read_json(args.destination_schema)
-        validate(snapshot, destination)
+        differences = validate(snapshot, destination, args.reviewed_storage_compatibility)
         validate_files(snapshot, args.object_root, read_json(args.object_manifest))
+        if differences:
+            print("Reviewed schema differences (inventory unchanged):")
+            for difference in differences:
+                print("- " + difference)
         if args.sql_output:
             output = Path(args.sql_output)
             require(output.is_absolute() and not output.exists(), "SQL output must be a new absolute private path")

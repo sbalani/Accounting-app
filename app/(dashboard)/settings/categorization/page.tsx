@@ -45,7 +45,7 @@ export default function CategorizationRulesPage() {
         setRules(data.rules || []);
       }
     } catch (err) {
-      console.error("Error fetching rules:", err);
+      console.error("Categorization rules fetch failed");
       setError("Failed to load categorization rules");
     } finally {
       setLoading(false);
@@ -60,7 +60,7 @@ export default function CategorizationRulesPage() {
         setCategories(data.categories || []);
       }
     } catch (err) {
-      console.error("Error fetching categories:", err);
+      console.error("Categories fetch failed");
     }
   };
 
@@ -513,4 +513,3 @@ function RuleForm({
     </form>
   );
 }
-

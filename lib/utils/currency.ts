@@ -78,7 +78,7 @@ export async function fetchExchangeRate(
     }
     return rate;
   } catch (error: any) {
-    console.error("Error fetching exchange rate:", error);
+    console.warn("Exchange-rate provider request failed");
     
     // Fallback: try alternative API (fixer.io style) if available
     // For now, throw the error and let the caller handle it
@@ -148,4 +148,3 @@ export async function getExchangeRateForDate(
     }
   }
 }
-

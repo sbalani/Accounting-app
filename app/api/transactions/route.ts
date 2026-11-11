@@ -112,8 +112,7 @@ export async function GET(request: Request) {
     const { data: transactions, error, count } = await query;
 
     if (error) {
-      console.error("Error fetching transactions:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
+      console.error("Transactions fetch failed");
       return NextResponse.json({ 
         error: error.message || "Failed to fetch transactions",
         details: error 
@@ -128,7 +127,7 @@ export async function GET(request: Request) {
       .maybeSingle();
 
     if (workspaceError) {
-      console.error("Error fetching workspace:", workspaceError);
+      console.error("Transaction workspace fetch failed");
     }
 
     let openingBalance: number | null = null;
@@ -249,7 +248,7 @@ export async function GET(request: Request) {
     }
     return NextResponse.json(res);
   } catch (error: any) {
-    console.error("Unexpected error in GET /api/transactions:", error);
+    console.error("Transactions route failed");
     return NextResponse.json({ 
       error: error.message || "An unexpected error occurred",
       details: error.stack 

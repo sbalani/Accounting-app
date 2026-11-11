@@ -30,7 +30,7 @@ export default function WorkspaceSwitcher() {
           }
         }
       } catch (error) {
-        console.error("Error fetching workspaces:", error);
+        console.error("Workspaces fetch failed");
       } finally {
         setLoading(false);
       }
@@ -50,7 +50,7 @@ export default function WorkspaceSwitcher() {
       setCurrentWorkspaceId(workspaceId);
       router.refresh();
     } catch (error) {
-      console.error("Error switching workspace:", error);
+      console.error("Workspace switch failed");
     }
   };
 

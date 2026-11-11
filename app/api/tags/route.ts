@@ -18,7 +18,7 @@ export async function GET() {
     .order("name", { ascending: true });
 
   if (error) {
-    console.error("Error fetching tags:", error);
+    console.error("Tags fetch failed");
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -76,10 +76,9 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    console.error("Error creating tag:", error);
+    console.error("Tag create failed");
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   return NextResponse.json({ tag });
 }
-

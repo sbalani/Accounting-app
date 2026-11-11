@@ -43,7 +43,7 @@ export default function DashboardOverview({ workspaceId }: DashboardOverviewProp
         setSummary(data);
       }
     } catch (err) {
-      console.error("Error fetching dashboard data:", err);
+      console.error("Dashboard data fetch failed");
     } finally {
       setLoading(false);
     }

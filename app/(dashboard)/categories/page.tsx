@@ -69,7 +69,7 @@ export default function CategoriesPage() {
       const d = await r.json();
       setCategories(d.categories || []);
     } catch (e) {
-      console.error(e);
+      console.error("Categories request failed");
     }
   }, []);
 
