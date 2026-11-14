@@ -97,6 +97,15 @@ export default function StatementImportPage() {
   const [newPaymentMethodType, setNewPaymentMethodType] = useState<"cash" | "bank_account" | "credit_card">("bank_account");
   const [newPaymentMethodBalance, setNewPaymentMethodBalance] = useState("");
   const [creatingPaymentMethod, setCreatingPaymentMethod] = useState(false);
+  const [revolutPreview, setRevolutPreview] = useState<{
+    openingBalance: string; closingBalance: string; netMovement: string;
+    currency: string; movements: number; feeRows: number; lastDate: string; digest: string;
+  } | null>(null);
+  const [revolutWorking, setRevolutWorking] = useState(false);
+  const isRevolutBankCsv = fileType === "csv" && [
+    "Type", "Product", "Started Date", "Completed Date", "Description",
+    "Amount", "Fee", "Currency", "State", "Balance",
+  ].every((name, index) => String(csvPreview[0]?.[index] || "").replace(/^\uFEFF/, "").trim() === name);
   
   // Primary currency for formatting
   const [primaryCurrency, setPrimaryCurrency] = useState<string>("USD");
@@ -601,6 +610,7 @@ export default function StatementImportPage() {
   };
 
   const handleUploadComplete = async (fileData: any) => {
+    setRevolutPreview(null);
     setUploadedFile(fileData);
     setError(null);
 
@@ -712,7 +722,57 @@ export default function StatementImportPage() {
     }
   };
 
+  const previewRevolutInitial = async () => {
+    if (!paymentMethodId || !uploadedFile || !isRevolutBankCsv) return;
+    setRevolutWorking(true);
+    setRevolutPreview(null);
+    setError(null);
+    try {
+      const response = await fetch("/api/transactions/revolut-initial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "preview", payment_method_id: paymentMethodId,
+          file_path: uploadedFile.filePathFull || uploadedFile.filePath }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not verify opening balance");
+      setRevolutPreview(data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setRevolutWorking(false);
+    }
+  };
+
+  const importRevolutInitial = async () => {
+    if (!revolutPreview || !paymentMethodId || !uploadedFile) return;
+    if (!confirm(`Set the opening balance to ${revolutPreview.openingBalance} ${revolutPreview.currency}, import all ${revolutPreview.movements} verified movements (including fees), and expect ${revolutPreview.closingBalance} ${revolutPreview.currency} at the statement end?`)) return;
+    setRevolutWorking(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/transactions/revolut-initial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "import", payment_method_id: paymentMethodId,
+          file_path: uploadedFile.filePathFull || uploadedFile.filePath, digest: revolutPreview.digest }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Initial import failed without changing the account");
+      alert(`Imported ${data.imported} verified movements. Account closing balance: ${data.closingBalance} ${data.currency}.`);
+      router.push("/transactions");
+    } catch (err: any) {
+      setRevolutPreview(null);
+      setError(err.message);
+    } finally {
+      setRevolutWorking(false);
+    }
+  };
+
   const handlePreviewTransactions = async () => {
+    if (isRevolutBankCsv) {
+      setError("For Revolut Current-account statements, use the verified balance import: the generic parser omits fee-only rows.");
+      return;
+    }
     if (!uploadedFile || !paymentMethodId) {
       setError("Please select a payment method");
       return;
@@ -1035,6 +1095,7 @@ export default function StatementImportPage() {
                   value={paymentMethodId}
                   onChange={(e) => {
                     setPaymentMethodId(e.target.value);
+                    setRevolutPreview(null);
                     // Update currency when payment method changes
                     const selectedPM = paymentMethods.find(pm => pm.id === e.target.value);
                     if (selectedPM?.currency) {
@@ -1059,6 +1120,34 @@ export default function StatementImportPage() {
                     : "No statements imported yet for this account."}
                 </p>
               </div>
+
+              {isRevolutBankCsv && (
+                <div className="rounded-lg border border-blue-300 bg-blue-50 p-5 space-y-3">
+                  <h2 className="text-lg font-semibold text-blue-900">Revolut starting balance and complete import</h2>
+                  <p className="text-sm text-blue-900">
+                    For a new zero-balance bank account with no history. This uses the completed date,
+                    applies Amount − Fee (including fee-only rows), and checks every running Balance
+                    before offering an opening balance. The generic import below does not handle these fees.
+                  </p>
+                  <button type="button" disabled={!paymentMethodId || revolutWorking}
+                    onClick={previewRevolutInitial}
+                    className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50">
+                    {revolutWorking ? "Verifying statement..." : "Preview opening balance"}
+                  </button>
+                  {revolutPreview && (
+                    <div className="space-y-2 text-sm text-blue-950">
+                      <p>Verified {revolutPreview.movements} completed movements ({revolutPreview.feeRows} with fees) through {revolutPreview.lastDate}.</p>
+                      <p>Calculated opening: <strong>{revolutPreview.openingBalance} {revolutPreview.currency}</strong></p>
+                      <p>Net movements: {revolutPreview.netMovement} {revolutPreview.currency}; statement closing: <strong>{revolutPreview.closingBalance} {revolutPreview.currency}</strong>.</p>
+                      <p>No transactions are imported and no balance is changed until you confirm below.</p>
+                      <button type="button" disabled={revolutWorking} onClick={importRevolutInitial}
+                        className="rounded bg-green-700 px-4 py-2 text-white disabled:opacity-50">
+                        Confirm opening balance and import all movements
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Header Row Selection */}
               <div>
