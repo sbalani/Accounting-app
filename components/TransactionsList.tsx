@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/utils/currency";
 import { getDatePresetRange, getDatePresetLabel, type DatePreset } from "@/lib/utils/date-presets";
 import AutocompleteDropdown from "./AutocompleteDropdown";
 import SubscriptionSuggestion from "./SubscriptionSuggestion";
+import { isAppleBillingEntry } from "@/lib/utils/subscription-matching";
 
 interface Transaction {
   id: string;
@@ -596,13 +597,17 @@ export default function TransactionsList({ paymentMethodId }: TransactionsListPr
   };
 
   const handleMarkAsSubscription = async (transactionId: string) => {
+    const transaction = transactions.find(item => item.id === transactionId);
+    const appleBilling = isAppleBillingEntry(transaction?.description || null);
+    const name = appleBilling ? prompt("Which Apple subscription is this? Enter its service name (for example iCloud+).") : undefined;
+    if (appleBilling && !name?.trim()) return;
     try {
       const response = await fetch("/api/subscriptions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ transaction_id: transactionId }),
+        body: JSON.stringify({ transaction_id: transactionId, ...(appleBilling ? { name: name?.trim(), billing_provider: "apple" } : {}) }),
       });
 
       if (!response.ok) {

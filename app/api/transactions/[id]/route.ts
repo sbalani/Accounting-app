@@ -137,7 +137,19 @@ export async function PATCH(
   const updateData: any = {};
   if (description !== undefined) updateData.description = description?.trim() || null;
   if (transaction_date !== undefined) updateData.transaction_date = transaction_date;
-  if (subscription_id !== undefined) updateData.subscription_id = subscription_id || null;
+  if (subscription_id !== undefined) {
+    if (subscription_id) {
+      const { data: subscription, error: subscriptionError } = await supabase.from("subscriptions")
+        .select("id, payment_method_id")
+        .eq("id", subscription_id).eq("workspace_id", workspaceId)
+        .eq("is_active", true).is("archived_at", null).maybeSingle();
+      if (subscriptionError || !subscription ||
+          subscription.payment_method_id !== (payment_method_id || existingTransaction.payment_method_id)) {
+        return NextResponse.json({ error: "Subscription must be active and use this workspace account" }, { status: 400 });
+      }
+    }
+    updateData.subscription_id = subscription_id || null;
+  }
   
   // Handle category_id (preferred) or category (backward compatibility)
   if (category_id !== undefined) {

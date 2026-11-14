@@ -6,12 +6,13 @@ import { formatCurrency } from "@/lib/utils/currency";
 interface SubscriptionSuggestionProps {
   transactionId: string;
   suggestion: {
-    type: "link_to_existing" | "create_new";
+    type: "link_to_existing" | "choose_existing" | "create_new";
     subscription?: {
       id: string;
       name: string;
       amount: number;
     };
+    subscriptions?: Array<{ id: string; name: string; amount: number }>;
     match_count?: number;
     future_match_count?: number;
     suggested_amount?: number;
@@ -36,7 +37,7 @@ export default function SubscriptionSuggestion({
   const [loading, setLoading] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
-  const handleLinkToExisting = async () => {
+  const handleLinkToExisting = async (subscriptionId: string) => {
     setLoading(true);
     try {
       const response = await fetch(`/api/transactions/${transactionId}`, {
@@ -45,7 +46,7 @@ export default function SubscriptionSuggestion({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          subscription_id: suggestion.subscription?.id,
+          subscription_id: subscriptionId,
         }),
       });
 
@@ -123,14 +124,17 @@ export default function SubscriptionSuggestion({
             <p className="text-sm font-medium text-gray-900">
               {suggestion.type === "link_to_existing"
                 ? `This might be "${suggestion.subscription?.name}" subscription`
-                : "This looks like a subscription"}
+                : suggestion.type === "choose_existing"
+                  ? "Several subscriptions could match this Apple charge"
+                  : "This looks like a subscription"}
             </p>
           </div>
           <p className="mt-1 text-xs text-gray-600">
-            {suggestion.type === "link_to_existing" ? (
+            {suggestion.type === "choose_existing" ? (
+              <>Same account, amount and billing window. Check which service was billed before linking.</>
+            ) : suggestion.type === "link_to_existing" ? (
               <>
-                Found {suggestion.match_count || 0} similar transaction
-                {suggestion.match_count !== 1 ? "s" : ""} that match this subscription pattern.
+                Account, amount, statement entry and scheduled date suggest a match. Confirm before linking.
               </>
             ) : (
               <>
@@ -156,17 +160,28 @@ export default function SubscriptionSuggestion({
               </ul>
             </div>
           )}
+          {suggestion.type === "choose_existing" && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {suggestion.subscriptions?.map(subscription => (
+                <button key={subscription.id} type="button" disabled={loading}
+                  onClick={() => handleLinkToExisting(subscription.id)}
+                  className="px-3 py-1 text-xs font-medium text-blue-800 border border-blue-300 rounded hover:bg-blue-100 disabled:opacity-50">
+                  {subscription.name} · {formatCurrency(subscription.amount, primaryCurrency)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="ml-4 flex flex-col gap-2">
           {suggestion.type === "link_to_existing" ? (
             <button
-              onClick={handleLinkToExisting}
+              onClick={() => suggestion.subscription && handleLinkToExisting(suggestion.subscription.id)}
               disabled={loading}
               className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Linking..." : "Link to Subscription"}
             </button>
-          ) : (
+          ) : suggestion.type === "create_new" ? (
             <button
               onClick={handleCreateAndLink}
               disabled={loading}
@@ -174,7 +189,7 @@ export default function SubscriptionSuggestion({
             >
               {loading ? "Creating..." : "Create Subscription"}
             </button>
-          )}
+          ) : null}
           <button
             onClick={() => setDismissed(true)}
             className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
@@ -186,5 +201,4 @@ export default function SubscriptionSuggestion({
     </div>
   );
 }
-
 
