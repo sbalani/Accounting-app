@@ -32,6 +32,12 @@ begin
                    and column_name = 'archived_at') then
     raise exception 'Subscription additive columns missing';
   end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'public.subscriptions'::regclass
+                 and conname = 'subscriptions_billing_month_check') or
+     not exists (select 1 from pg_constraint where conrelid = 'public.subscriptions'::regclass
+                 and conname = 'subscriptions_billing_schedule_check') then
+    raise exception 'Subscription billing constraints missing';
+  end if;
   if has_function_privilege('anon',
       'public.import_revolut_initial_statement(uuid,uuid,text,numeric,numeric,date,jsonb)', 'EXECUTE') or
      not has_function_privilege('authenticated',

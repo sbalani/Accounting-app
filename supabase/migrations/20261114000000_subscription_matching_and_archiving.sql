@@ -10,7 +10,7 @@ alter table public.subscriptions
   add column billing_month integer
     check (billing_month between 1 and 12),
   add column archived_at timestamptz,
-  add constraint subscriptions_billing_month_check
+  add constraint subscriptions_billing_schedule_check
     check ((billing_interval = 'monthly' and billing_month is null) or
            (billing_interval = 'yearly' and billing_month is not null));
 
